@@ -1,0 +1,30 @@
+# coin-dojo local configuration. Copy to config/local.yml (git-ignored) and edit:   cp config/local.example.yml config/local.yml
+# Only set what differs from the defaults; `make config` shows every value and where it comes from, `make config-check`
+# validates this file (an unknown name gets a "did you mean" hint). Reference: docs/CONFIG.md. No secrets here, ever.
+
+# --- required -----------------------------------------------------------------------------------------------------
+hk_cabinet_host: arcade.local        # hostname or IP of your cabinet
+
+# --- common overrides (uncomment) -------------------------------------------------------------------------------
+# hk_cabinet_user: coindojo            # Linux user that runs ES-DE on the cabinet
+# hk_cabinet_uid: 1000               # `id -u` on the cabinet
+# hk_ssh_key: ~/.ssh/id_ed25519
+# hk_become_keychain: coin-dojo-sudo  # macOS Keychain item with the cabinet's sudo password
+# hk_data_root: /data                # the other roots (roms, media, bios, nested) follow it
+# hk_game_procs: [retroarch, flycast]
+# hk_timezone: Europe/Berlin        # the cabinet's time zone (default Etc/UTC); a zone picked in SETTINGS wins on later deploys
+
+# --- theme (uncomment) ----------------------------------------------------------------------------------------------
+# hk_theme_art_dir: my-art          # (relative to the repo, or absolute) folder with backdrops/default.png (1440x1080); unset = the community backdrop
+# hk_eye_glow: {enabled: false}      # glow over the eyes of your backdrop; or {peak: 0.6, box: [x0, y0, x1, y1]}
+# hk_rev_stamp: false                # hide the REV build stamp in the footer
+# hk_hotkey_strip: false             # hide the hotkey badge strip on game lists
+
+# --- dev tools (uncomment what you use) -----------------------------------------------------------------------------
+# hk_edition: community              # personal = also personal/** (the private art overlay)
+# hk_forge_url: http://forge.lan:3000   # your Forgejo: tools/tickets.py, tools/release.py, changelog links
+# hk_forge_repo: alice/coin-dojo
+# hk_forge_keychain: my-forge-admin     # macOS Keychain item NAMES (the token itself never goes here)
+# hk_forge_bot_keychain: my-forge-bot
+# hk_worktree_dir: ~/coin-dojo-wt        # `tools/wt new` makes worktrees here
+# hk_stock_image: ~/backups/stock-card.img    # your card backup, for skills/local-preview

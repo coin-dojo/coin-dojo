@@ -1,0 +1,59 @@
+# Area: achievements (#45). RetroAchievements in RetroArch 1.22 (every RetroArch system) and standalone flycast
+# (Dreamcast, Naomi). Off by default. Your account name goes in your local config; the login token lives in your
+# macOS Keychain (the item hk_cheevos_keychain names) and reaches the cabinet only through bin/deploy's private
+# per-run vars file. Never put a token or password in config or git.
+area: achievements
+description: RetroAchievements in RetroArch and flycast. Off by default; account in local config, token in the Keychain.
+variables:
+  hk_cheevos_enable:
+    type: bool
+    default: false
+    description: Turn RetroAchievements on in RetroArch (cheevos_enable) and flycast ([achievements] Enabled).
+    consumers: [ansible/roles/retroarch122, ansible/roles/dreamcast]
+  hk_cheevos_user:
+    type: str
+    default: ""
+    pattern: "[A-Za-z0-9_.-]{0,32}"
+    description: >-
+      Your RetroAchievements user name (RetroArch cheevos_username, flycast UserName). Empty = none written. Set it in
+      your local config only.
+    consumers: [ansible/roles/retroarch122, ansible/roles/dreamcast]
+  hk_cheevos_keychain:
+    type: str
+    default: ""
+    description: >-
+      Name of the macOS Keychain item that holds your RetroAchievements login token (not your password). bin/deploy
+      reads it at deploy time (COIN_DOJO_CHEEVOS_TOKEN overrides it). Empty = no token is written; log in from the
+      RetroArch menu instead.
+    consumers: [ansible/bin/deploy]
+  hk_cheevos_web_keychain:
+    type: str
+    default: ""
+    description: >-
+      Name of the macOS Keychain item that holds your RetroAchievements Web API key (retroachievements.org, Settings,
+      Keys), for the TROPHIES page (#176). bin/deploy reads it at deploy time (COIN_DOJO_CHEEVOS_WEB_KEY overrides it)
+      into a 0600 file on the cabinet. Empty = the TROPHIES page shows how to connect.
+    consumers: [ansible/bin/deploy]
+  hk_trophies_carousel:
+    type: bool
+    default: false
+    description: >-
+      Also show TROPHIES as an entry on the main carousel (#176). Off by default (the maintainer 2026-11-17): tap LP on the main
+      menu opens the same page as an overlay (#177), which needs only RetroAchievements and a user.
+    consumers: [ansible/roles/esde_collections]
+  hk_cheevos_hardcore:
+    type: bool
+    default: true
+    description: >-
+      Hardcore mode (RetroArch cheevos_hardcore_mode_enable, flycast HardcoreMode): no save-state loading, rewind,
+      slow motion or cheats; unlocks count as hardcore and leaderboards work. Turning it on restarts a running game.
+    consumers: [ansible/roles/retroarch122, ansible/roles/dreamcast]
+  hk_cheevos_hardcore_by_core:
+    type: map
+    default: {}
+    description: >-
+      Per-core exceptions to hk_cheevos_hardcore, as {<RetroArch core folder name>: true|false} (the folder under
+      config/, e.g. "PCSX-ReARMed: false" for softcore on PlayStation). Written into that core's override
+      config/<core>/<core>.cfg. Mupen64Plus-Next is refused: its override is a whole-file copy (retroarch122). Not used
+      by flycast (that one follows hk_cheevos_hardcore).
+    consumers: [ansible/roles/retroarch122]

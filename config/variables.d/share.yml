@@ -1,0 +1,42 @@
+# Area: share. The network folder (#266): the ROM and BIOS folders shared on the home network over SMB, so games can
+# be copied from Finder or Windows Explorer without SSH. Role ansible/roles/share; the hardening is fixed in its
+# smb.conf (SMB3 only, no guest, LAN interfaces and private addresses only, the cabinet user only).
+area: share
+description: The network folder (SMB) for the ROM and BIOS folders, and the cabinet's name on the network.
+variables:
+  hk_share_enable:
+    type: bool
+    default: true
+    description: >-
+      Share exactly two folders on the home network: `roms` (hk_rom_root) and `bios` (hk_bios_root), as
+      `smb://<name>.local` (Finder) and `\\<name>.local` (Windows Explorer). Login: the cabinet user and its network
+      password (the community image sets the default login's password; SETTINGS > PASSWORD changes the login and
+      this password together). SMB3 only, no guest, LAN interfaces and private addresses only, nothing else
+      shared (no home folders, no printers). Installs Samba and avahi (mDNS, `<name>.local`) from Debian. true in the
+      community edition; the personal edition turns it off in its local config. false stops and disables Samba and
+      removes the folder's mDNS entry (the packages stay).
+    consumers: [ansible/roles/share]
+  hk_share_bios_veto:
+    type: list
+    items: str
+    default: [mame, "*.lua"]
+    description: >-
+      Names the network folder hides and refuses in the `bios` share (Samba `veto files`, any depth): folders or
+      files emulators read SCRIPTS or settings from, which the network folder must not be able to plant. `mame` = the
+      MAME core's whole system subtree (`bios/mame/`: ini files, which can name an autoboot Lua script, plugins, Lua,
+      cheats, hash files); `*.lua` = any Lua script. Normal BIOS files (zip, bin, rom, pce) still copy. Copy MAME's
+      own files over SSH if you need them. One name or shell pattern per item, no `/`. Empty: nothing blocked.
+    example: "[mame, \"*.lua\", fbneo]"
+    consumers: [ansible/roles/share]
+  hk_share_roms_veto:
+    type: list
+    items: str
+    default: [mame, "*.lua", "*.cmd"]
+    description: >-
+      Names the network folder hides and refuses in the `roms` share (Samba `veto files`, any depth, renames
+      included): `*.cmd` = MAME command files (they can name an `-autoboot_script` Lua script), `*.lua` = Lua scripts,
+      `mame` = a folder named like MAME's settings tree. ROM folders (`roms/arcade`, `roms/fbneo` ...) and every ROM
+      extension the cabinet's systems use stay open (no system uses .cmd). One name or shell pattern per item, no `/`.
+      Empty: nothing blocked.
+    example: "[mame, \"*.lua\", \"*.cmd\"]"
+    consumers: [ansible/roles/share]

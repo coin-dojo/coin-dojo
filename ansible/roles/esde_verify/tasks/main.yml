@@ -1,0 +1,76 @@
+# esde_verify (#89): after the ES-DE restart, check what ES-DE shows. Read-only; runs last.
+#   - flush_handlers first: the one `restart es-de` runs here if anything ES-DE reads changed
+#   - counts: per virtual system, ES-DE's gamelist games == the links under its <path>, and == what this
+#     run built (catches the neogeo bug: 1035 shown of 1143)
+#   - validate_nested.py on the live nested_out (BIOS-named folders/files, dead links, links vs games)
+#   - log: new ES-DE Error lines since the previous session FAIL after a restart (WARN otherwise)
+# Strict (a mismatch FAILs the play) after an apply, or with -e esde_verify_strict=true (make esde-verify);
+# a plain dry run reports and goes on (the build it would deploy may fix the mismatch).
+
+- name: Run the pending ES-DE restart now (if anything ES-DE reads changed)
+  ansible.builtin.meta: flush_handlers
+
+- name: Strict or report-only
+  ansible.builtin.set_fact:
+    esde_verify_fail: "{{ (esde_verify_strict | default(not ansible_check_mode)) | bool }}"
+
+- name: Counts ES-DE shows per virtual system
+  ansible.builtin.script:
+    cmd: >-
+      {{ role_path }}/../esde_common/files/esde_verify.py counts
+      --es-systems {{ esde_custom_systems }}/es_systems.xml
+      --gamelists {{ esde_gamelists }}
+      {% if esde_expected_counts is defined and not ansible_check_mode %}--expect {{ esde_expected_counts | to_json | quote }}{% endif %}
+    executable: "{{ esde_python }}"
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  register: esde_verify_counts
+
+- name: Counts result
+  ansible.builtin.debug:
+    msg: "{{ esde_verify_counts.stdout_lines }}"
+
+- name: Validate the live nested_out
+  ansible.builtin.command:
+    argv: ["{{ esde_python }}", "validate_nested.py", "--out", "{{ esde_nested_out }}"]
+    chdir: "{{ coin_dojo_dir }}"
+  environment: {HK_VIRTUAL_SYSTEMS: "{{ esde_virtual_systems | to_json }}"}     # hk_virtual_systems (#94)
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  register: esde_verify_validate
+
+- name: Validator result
+  ansible.builtin.debug:
+    msg: "{{ esde_verify_validate.stdout_lines[-8:] }}"
+
+- name: ES-DE log - new errors since the previous session
+  ansible.builtin.script:
+    cmd: >-
+      {{ role_path }}/../esde_common/files/esde_verify.py log
+      --log {{ esde_log }} --prev {{ esde_log }}.bak
+      {% for r in esde_log_ignore %}--ignore {{ r | quote }} {% endfor %}
+      {{ '' if esde_restarted | default(false) else '--warn-only' }}
+    executable: "{{ esde_python }}"
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  register: esde_verify_log
+
+- name: Log result
+  ansible.builtin.debug:
+    msg: "{{ esde_verify_log.stdout_lines[-20:] }}"
+
+- name: FAIL on a count mismatch, a validator FAIL or new ES-DE errors after the restart
+  ansible.builtin.assert:
+    that:
+      - esde_verify_counts.rc == 0
+      - esde_verify_validate.rc == 0
+      - esde_verify_log.rc == 0
+    fail_msg: >-
+      ES-DE verify failed (counts rc {{ esde_verify_counts.rc }}, validator rc {{ esde_verify_validate.rc }},
+      log rc {{ esde_verify_log.rc }}): {{ (esde_verify_counts.stdout_lines + esde_verify_validate.stdout_lines
+      + esde_verify_log.stdout_lines) | select('match', '^FAIL') | list }}. Backups: {{ esde_backup_root }}/{{ esde_stamp | default('?') }}-*
+    quiet: true
+  when: esde_verify_fail | bool

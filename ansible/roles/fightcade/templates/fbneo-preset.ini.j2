@@ -1,0 +1,15 @@
+// coin-dojo (#230): FBNeo default inputs for player {{ fightcade_player }} = DirectInput joystick {{ fightcade_player - 1 }} (the cabinet stick).
+// Written by the ansible role `fightcade` only when this file is absent: edit it freely, delete it to get the
+// shipped map back on the next deploy. A game's config/games/<rom>.ini (F5, saved on exit) wins over this file.
+// Panel: LP MP HP / LK MK HK = fire 1 2 3 / 4 5 6, SELECT = coin, START = start. Codes: 0x4000 + 0x100 * joystick,
+// +0x00..0x03 = X left/right, Y up/down, +0x80 + n = button n (FBNeo gami.cpp InputCodeDesc).
+version {{ fightcade_fbneo_version }}
+{% set j = 16384 + 256 * (fightcade_player - 1) %}
+{% set p = 'p' ~ fightcade_player %}
+input  "{{ p }} up"  switch {{ '0x%04X' | format(j + 2) }}
+input  "{{ p }} down"  switch {{ '0x%04X' | format(j + 3) }}
+input  "{{ p }} left"  switch {{ '0x%04X' | format(j + 0) }}
+input  "{{ p }} right"  switch {{ '0x%04X' | format(j + 1) }}
+{% for name, button in fightcade_preset_buttons %}
+input  "{{ p }} {{ name }}"  switch {{ '0x%04X' | format(j + 128 + fightcade_stick_buttons[button]) }}
+{% endfor %}

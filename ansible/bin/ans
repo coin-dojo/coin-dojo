@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Run Ansible from the pinned container (ticket #90; same pattern as the maintainer's other repo's wrapper).
+# The laptop needs only Docker (Colima); Ansible is never installed on the host.
+#
+#   bin/ans ansible-playbook site.yml --syntax-check
+#   bin/ans ansible-playbook site.yml --check --diff
+#   bin/ans ansible arcade -m ping
+#   bin/ans                         # = ansible --version
+#
+# - Image coin-dojo-ansible:<first 12 hex of sha256(Dockerfile + requirements.txt + requirements.yml)>,
+#   built on first use and after any pin change (a few minutes; one build at a time).
+# - The repo is mounted at the SAME path, so playbook_dir, staging/ and @extra-vars files resolve
+#   identically. The cache $HK_CACHE/ansible (default ~/.cache/coin-dojo/ansible; ANS_CACHE overrides) is mounted too
+#   (bin/deploy's rendered config + 0600 temp vars file live there).
+# - SSH: ~/.ssh/id_ed25519 (ANS_SSH_KEY) and ~/.ssh/known_hosts are mounted read-only.
+# - ANS_WORKSPACE=DIR mounts DIR read-only at the same path (the gamelists workspace, #89).
+# - RomM env (ROMM_URL ROMM_TOKEN ROMM_USER ROMM_PASS) is passed by name, never in docker's argv.
+# Exit 3: docker not running (start Colima: `colima start`). Exit 1: image build failed.
+set -eu
+
+HERE=$(cd "$(dirname "$0")/.." && pwd)            # ansible
+REPO_ROOT=$(cd "$HERE/.." && pwd)
+KEY=${ANS_SSH_KEY:-$HOME/.ssh/id_ed25519}
+CACHE=${ANS_CACHE:-${HK_CACHE:-$HOME/.cache/coin-dojo}/ansible}   # the one cache root (#142)
+# sha256sum (Linux) or shasum (macOS): make image runs this on Linux hosts too (#244); same hex either way.
+SUM="shasum -a 256"; command -v sha256sum >/dev/null 2>&1 && SUM=sha256sum
+HASH=$(cat "$HERE/Dockerfile" "$HERE/requirements.txt" "$HERE/requirements.yml" | $SUM | cut -c1-12)
+IMAGE=coin-dojo-ansible:$HASH
+
+if [ "${1:-}" = --image ]; then echo "$IMAGE"; exit 0; fi   # for tests / make
+[ $# -gt 0 ] || set -- ansible --version
+
+docker info >/dev/null 2>&1 || { echo "ans: docker is not running (start Colima: colima start)" >&2; exit 3; }
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  echo "ans: building $IMAGE (first use or pin change; a few minutes)" >&2
+  log=$(mktemp "${TMPDIR:-/tmp}/coin-dojo-ans-build.XXXXXX")
+  if ! docker build -t "$IMAGE" "$HERE" >"$log" 2>&1; then
+    tail -30 "$log" >&2; rm -f "$log"
+    echo "ans: image build failed" >&2; exit 1
+  fi
+  rm -f "$log"
+  echo "ans: built $IMAGE" >&2
+fi
+
+mkdir -p "$CACHE"
+MOUNTS=(-v "$REPO_ROOT:$REPO_ROOT" -v "$CACHE:$CACHE")
+[ -f "$KEY" ] && MOUNTS+=(-v "$KEY:/root/.ssh/id_ed25519:ro")
+# sshd_keyonly reads <key>.pub on the control node to prove the key is authorized before going key-only.
+[ -f "$KEY.pub" ] && MOUNTS+=(-v "$KEY.pub:/root/.ssh/id_ed25519.pub:ro")
+[ -f "$HOME/.ssh/known_hosts" ] && MOUNTS+=(-v "$HOME/.ssh/known_hosts:/root/.ssh/known_hosts:ro")
+# ANS_WORKSPACE (#89): the gamelists workspace of `make pull-gamelists W=DIR`, read-only at the same path.
+if [ -n "${ANS_WORKSPACE:-}" ]; then
+  [ -d "$ANS_WORKSPACE" ] || { echo "ans: ANS_WORKSPACE=$ANS_WORKSPACE is not a directory" >&2; exit 2; }
+  # Colima shares only $HOME with containers: a workspace elsewhere (e.g. /private/tmp) mounts EMPTY and the
+  # drift check fails with "no .../gamelists". Refuse it up front with the fix.
+  case "$ANS_WORKSPACE" in "$HOME"/*) ;; *) echo "ans: W=$ANS_WORKSPACE must be under \$HOME (Colima shares only \$HOME); use e.g. W=\$HOME/.cache/coin-dojo/ws/<name>" >&2; exit 2 ;; esac
+  MOUNTS+=(-v "$ANS_WORKSPACE:$ANS_WORKSPACE:ro")
+fi
+ENVS=()
+# ANSIBLE_INVENTORY: bin/deploy adds the inventory generated from the config (#118); it lives under $CACHE (mounted).
+for v in ROMM_URL ROMM_TOKEN ROMM_USER ROMM_PASS ANSIBLE_INVENTORY; do
+  [ -n "${!v:-}" ] && { export "${v?}"; ENVS+=(-e "$v"); }
+done
+WD=$HERE
+case $PWD in "$REPO_ROOT"|"$REPO_ROOT"/*) WD=$PWD ;; esac
+TTY=(); [ -t 0 ] && [ -t 1 ] && TTY=(-it)
+exec docker run --rm ${TTY[@]+"${TTY[@]}"} "${MOUNTS[@]}" ${ENVS[@]+"${ENVS[@]}"} \
+  -e ANSIBLE_FORCE_COLOR="${ANSIBLE_FORCE_COLOR:-}" -e ANSIBLE_LOCAL_TEMP=/tmp/.ansible-local \
+  -w "$WD" "$IMAGE" "$@"

@@ -1,0 +1,24 @@
+# Area: guard. The game guard: no cabinet write while one of these processes runs.
+area: guard
+description: Which processes mean "a game is running", for the deploy guard and cabinet-guard.
+variables:
+  hk_game_procs:
+    type: list
+    items: str
+    pattern: "[A-Za-z0-9._+-]{1,15}"   # pgrep -x matches at most 15 characters; no shell characters (#148)
+    default: [retroarch, flycast]
+    description: >-
+      Process names (pgrep -x) that mean a game is running. RetroArch and flycast rewrite their files and ES-DE's
+      gamelists on exit, so nothing is written while one runs.
+    consumers: [mk/cabinet.mk, ansible/roles/esde_common, ansible/roles/launcher, ansible/roles/retroarch122]
+    exports: [esde_game_procs]
+  hk_game_patterns:
+    type: list
+    items: str
+    pattern: "[A-Za-z0-9._/+\\[\\] -]{1,100}"   # pgrep -f patterns: no quotes, $ or backticks (#148)
+    default: ["retroarch-1.22/retroarc[h]"]
+    description: >-
+      Command-line patterns (pgrep -f) for games that run under another process name. The bracket trick
+      (`retroarc[h]`) keeps pgrep from matching its own command line.
+    consumers: [mk/cabinet.mk, ansible/roles/esde_common, ansible/roles/launcher]
+    exports: [esde_game_patterns]

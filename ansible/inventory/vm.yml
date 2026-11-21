@@ -1,0 +1,38 @@
+# coin-dojo-vm (#82): the throwaway Debian 13 test VM on the Mac (vm/coin-dojo-test.yaml, lima/vz).
+# NOT the cabinet: own group `vm` (never in `pios` or `arcade`), own name, and an address that only
+# exists on this Mac. Only vm.yml (imported at the end of site.yml) targets the group.
+#
+#   make deploy LIMIT=coin-dojo-vm [APPLY=1]     (vm/vm_guard.py checks this file first)
+#   make vm-provision                           (= the same with APPLY=1, after make vm-up)
+#
+# Ansible runs in the Colima container (bin/ans), so 127.0.0.1 would be the container itself: the
+# lima SSH forward (Mac 127.0.0.1:60124, vm/coin-dojo-test.yaml ssh.localPort) is reached as
+# host.lima.internal, which Colima resolves to the Mac.
+all:
+  children:
+    vm:
+      hosts:
+        coin-dojo-vm:
+          ansible_host: host.lima.internal
+          ansible_port: 60124
+          ansible_user: coindojo
+          ansible_python_interpreter: /usr/bin/python3
+          # The VM is recreated at will (new host key each time) and lives on the Mac's loopback:
+          # do not pin its host key (the mounted known_hosts is read-only anyway).
+          ansible_ssh_common_args: -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR
+          # lima gives coindojo passwordless sudo: no --ask-become-pass for the VM.
+
+          # --- cabinet role switches for the VM (what is Pi-only; README "Skipped or switched") ---
+          # rpi-swap is a Raspberry Pi OS package; vm_base configures systemd-zram-generator instead.
+          cabinet_swap_packages: [systemd-zram-generator]
+          # #93: lima's NOPASSWD sudo for coindojo makes `sudo -n true` succeed with no cache at all, so the
+          # apply-time "no cached sudo" proof cannot hold here; the drop-in itself is still installed and validated.
+          cabinet_sudo_cache_proof: false
+          # settings (#34): no Wi-Fi hardware and no NetworkManager -> the fake nmcli; no collgen nested build ->
+          # a standalone SETTINGS system; the libraries come from apt (the cabinet has them).
+          settings_fake_nmcli: true
+          settings_polkit: false
+          settings_standalone_carousel: true
+          settings_packages: [libsdl2-2.0-0, libcairo2, libfreetype6]
+          # fightcade (#208): the VM has no 3D, so Electron's GPU process draws black; software rendering here only.
+          fightcade_electron_flags: [--disable-gpu]

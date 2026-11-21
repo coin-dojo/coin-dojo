@@ -1,0 +1,87 @@
+#!/bin/bash
+# hk-session (#82): the cabinet's screen session, headless, inside coin-dojo-vm. Installed by the
+# vm_base role to /usr/local/bin/hk-session. Run as coindojo (make vm-smoke / vm-watch call it).
+#
+#   hk-session start [CMD...]   cage (headless backend, pixman) running CMD; default = ES-DE with the
+#                               cabinet's exact flags (--resolution 1440 1080 --fullscreen-padding 1)
+#   hk-session run CMD...       start CMD as another client of the running session (like ES-DE
+#                               starting RetroArch on top)
+#   hk-session shot FILE        grim screenshot (FILE.png and FILE.ppm)
+#   hk-session vnc              wayvnc on the VM's 127.0.0.1:5900 (lima forwards it to the Mac's 127.0.0.1:5924)
+#   hk-session status           pids of cage / ES-DE (es-de here; AppRun on the cabinet) / retroarch / wayvnc
+#   hk-session stop             stop all of the above (TERM, then KILL after 5 s)
+#
+# The cabinet runs `exec cage -d -- es-de ...` on tty1 with a real KMS display. Here the backend is
+# WLR_BACKENDS=headless and the renderer pixman (no GPU in a vz guest); clients render with Mesa
+# llvmpipe. The headless output is set to the cabinet panel's 1920x1080 before the app starts.
+# LP_NUM_THREADS caps llvmpipe's threads (default 2) so a running session stays light on the Mac.
+set -u
+
+RUN=/run/user/$(id -u)
+export XDG_RUNTIME_DIR=$RUN
+export WLR_BACKENDS=headless WLR_RENDERER=${WLR_RENDERER:-pixman} WLR_LIBINPUT_NO_DEVICES=1 WLR_HEADLESS_OUTPUTS=1
+export LP_NUM_THREADS=${LP_NUM_THREADS:-2}
+MODE=${HK_MODE:-1920x1080}
+STATE=$RUN/hk-session.display
+LOG=${HK_LOG:-/tmp/hk-session.log}
+ESDE=(/usr/local/bin/es-de --resolution 1440 1080 --fullscreen-padding 1)
+
+die() { echo "hk-session: $*" >&2; exit 1; }
+mine() { pgrep -u "$(id -u)" -x "$1"; }
+display() { [ -s "$STATE" ] && cat "$STATE"; }
+
+cmd=${1:-status}; shift || true
+case $cmd in
+  start)
+    if mine cage >/dev/null; then echo "hk-session: already running on $(display)"; exit 0; fi
+    [ $# -gt 0 ] || set -- "${ESDE[@]}"
+    # shellcheck disable=SC2010  # the names are matched by an anchored pattern; ls | grep is the intent
+    before=$(ls "$RUN" 2>/dev/null | grep -E '^wayland-[0-9]+$' | sort)
+    # The output mode is set from inside the session, before the app opens its window.
+    # shellcheck disable=SC2016  # single quotes on purpose: $0 and $@ expand in the inner sh
+    setsid cage -d -- sh -c 'wlr-randr --output HEADLESS-1 --custom-mode "$0" >/dev/null 2>&1; exec "$@"' \
+      "$MODE" "$@" >"$LOG" 2>&1 </dev/null &
+    for _ in $(seq 1 40); do
+      # shellcheck disable=SC2010  # same as above
+      sock=$(ls "$RUN" 2>/dev/null | grep -E '^wayland-[0-9]+$' | sort | comm -13 <(printf '%s\n' "$before") - | head -1)
+      [ -n "$sock" ] && break
+      sleep 0.25
+    done
+    [ -n "${sock:-}" ] || { tail -20 "$LOG" >&2; die "cage did not create a Wayland socket in 10 s (log: $LOG)"; }
+    printf '%s\n' "$sock" >"$STATE"
+    echo "hk-session: cage started (pid $(mine cage | head -1)) on $sock, ${MODE}, renderer $WLR_RENDERER: $*"
+    ;;
+  run)
+    [ $# -gt 0 ] || die "run needs a command"
+    d=$(display) && mine cage >/dev/null || die "no session; hk-session start first"
+    WAYLAND_DISPLAY=$d setsid "$@" >>"$LOG" 2>&1 </dev/null &
+    echo "hk-session: started on $d (pid $!): $*"
+    ;;
+  shot)
+    [ $# -eq 1 ] || die "shot needs FILE (without extension)"
+    d=$(display) && mine cage >/dev/null || die "no session"
+    WAYLAND_DISPLAY=$d grim -t png "$1.png" && WAYLAND_DISPLAY=$d grim -t ppm "$1.ppm" || die "grim failed"
+    echo "hk-session: $1.png ($(stat -c %s "$1.png") bytes)"
+    ;;
+  vnc)
+    d=$(display) && mine cage >/dev/null || die "no session; hk-session start first"
+    if mine wayvnc >/dev/null; then echo "hk-session: wayvnc already running"; exit 0; fi
+    # 127.0.0.1 only, no password: lima forwards it to the Mac's loopback and nowhere else.
+    WAYLAND_DISPLAY=$d setsid wayvnc 127.0.0.1 5900 >>"$LOG" 2>&1 </dev/null &
+    sleep 1
+    mine wayvnc >/dev/null || { tail -5 "$LOG" >&2; die "wayvnc did not start"; }
+    echo "hk-session: wayvnc on 127.0.0.1:5900 (Mac: vnc://127.0.0.1:5924)"
+    ;;
+  status)
+    for p in cage es-de AppRun retroarch wayvnc; do printf '%-10s %s\n' "$p" "$(mine "$p" | tr '\n' ' ')"; done
+    echo "display    $(display || true)"
+    ;;
+  stop)
+    for p in wayvnc retroarch es-de AppRun cage; do pkill -u "$(id -u)" -x "$p" 2>/dev/null; done
+    for _ in $(seq 1 20); do mine cage >/dev/null || mine es-de >/dev/null || break; sleep 0.25; done
+    for p in wayvnc retroarch es-de AppRun cage; do pkill -9 -u "$(id -u)" -x "$p" 2>/dev/null; done
+    rm -f "$STATE"
+    echo "hk-session: stopped"
+    ;;
+  *) die "unknown command '$cmd' (start | run | shot | vnc | status | stop)" ;;
+esac

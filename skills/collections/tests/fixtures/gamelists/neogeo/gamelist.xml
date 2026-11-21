@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>./mslug.zip</path>
+		<name>Metal Slug</name>
+		<releasedate>19960101T000000</releasedate>
+		<genre>Run and Gun</genre>
+	</game>
+	<game>
+		<path>./samsho.zip</path>
+		<name>Samurai Shodown</name>
+		<releasedate>19930101T000000</releasedate>
+		<genre>Fighting</genre>
+	</game>
+</gameList>

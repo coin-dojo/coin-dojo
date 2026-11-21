@@ -1,0 +1,14 @@
+# Local integration play for the ES-DE deploy roles (#89), run by tests/test_esde_local.py in the pinned
+# container against a throwaway tree (ansible_connection=local; every path is overridden with -e @vars).
+# Never points at the cabinet.
+- name: ES-DE deploy roles against a fake cabinet tree
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - ../group_vars/esde.yml
+    - ../roles/settings/defaults/main.yml      # settings_entry / settings_command (esde_collections uses them)
+  roles:
+    - esde_common
+    - esde_theme
+    - esde_collections
+    - esde_verify

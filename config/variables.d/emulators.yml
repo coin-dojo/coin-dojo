@@ -1,0 +1,47 @@
+# Area: emulators. Per-emulator knobs the roles used to hardcode. The shader levers are in shaders.yml.
+# /data/emulators is NOT a lever (#164, decided "nowhere"): it is a fixed layout of the cabinet image (the data
+# partition). launch.py runs standalone on the cabinet and is checked byte-for-byte against launch_expected.json, so
+# a root that only some readers follow would break every launch. ansible/tests/test_emulator_config.py keeps every
+# reader (role defaults, launch.py, vm/guest/smoke.sh) on the same paths.
+area: emulators
+description: Standalone flycast (Dreamcast, Naomi, Atomiswave) settings written into its emu.cfg.
+variables:
+  hk_upscale:
+    type: int
+    default: 2
+    min: 1
+    max: 2
+    description: >-
+      Internal render scale of the 3D systems that can upscale, always 4:3 (#170): PlayStation (PCSX ReARMed enhanced
+      resolution on at 2), N64 (Mupen64Plus-Next 320x240 times n) and Dreamcast/Naomi (flycast 480 lines times n,
+      unless hk_flycast_resolution sets its own). 1 = native, 2 = twice (what the 2 GB Pi 5 holds). 2D systems and
+      Saturn cannot upscale.
+    consumers: [ansible/roles/cabinet_tweaks, ansible/roles/dreamcast]
+  hk_flycast_resolution:
+    type: int
+    default: 0
+    min: 0
+    max: 2160
+    description: >-
+      flycast's internal render height in pixels (emu.cfg rend.Resolution). 0 = follow hk_upscale (480 lines times
+      n: 960 at the default). Set it only to give flycast its own height (480 native, 1440 three times).
+    consumers: [ansible/roles/dreamcast]
+  hk_flycast_resolution_by_game:
+    type: map
+    default: {Ikaruga: 480}
+    description: >-
+      Per-game flycast render height (#179), as {<ROM file name without extension>: <height 240-2160>}, matched without
+      case. flycast-run.sh passes it as a transient `-config config:rend.Resolution=<h>` for that game only (emu.cfg
+      is not touched). Ikaruga runs at native 480 lines: full speed beats sharper pixels on the Pi 5 (the maintainer
+      2026-11-16). `{}` = every game at hk_flycast_resolution.
+    consumers: [ansible/roles/dreamcast]
+  hk_flycast_vsync:
+    type: bool
+    default: true
+    description: Wait for the display's vertical sync in flycast (emu.cfg rend.vsync). Off tears but saves a frame of lag.
+    consumers: [ansible/roles/dreamcast]
+  hk_flycast_show_fps:
+    type: bool
+    default: false
+    description: Draw flycast's frame counter on screen (emu.cfg rend.ShowFPS), top right inside the bezel. Also on while hk_benchmark_mode is.
+    consumers: [ansible/roles/dreamcast]

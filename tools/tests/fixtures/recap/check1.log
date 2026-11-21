@@ -1,0 +1,655 @@
+[WARNING]: Could not match supplied host pattern, ignoring: arcade
+
+PLAY [RomM sync (control node -> local staging)] *******************************
+skipping: no hosts matched
+
+PLAY [Deploy arcade pack to the Batocera cabinet] ******************************
+skipping: no hosts matched
+
+PLAY [Deploy dreamcast + system tweaks to the Debian cabinet] ******************
+
+TASK [Gathering Facts] *********************************************************
+ok: [cab-test]
+
+TASK [cabinet_tweaks : 4 KB-page kernel for emulator JIT (flycast); backup then kernel=kernel8.img under [all]] ***
+ok: [cab-test]
+
+TASK [cabinet_tweaks : Comment explaining how to revert the kernel line] *******
+--- before: /boot/firmware/config.txt (content)
++++ after: /boot/firmware/config.txt (content)
+@@ -58,6 +58,6 @@
+ disable_fw_kms_setup=1
+ disable_overscan=1
+ 
+-# 4KB-page kernel for emulator JIT compatibility (flycast/Dreamcast etc.)
++# 4KB-page kernel for emulator JIT compatibility (flycast/Dreamcast etc.). Revert: delete the next line (restores the Pi5 16KB-page kernel_2712.img default)
+ # Revert: delete the next line (restores the Pi5 16KB-page kernel_2712.img default)
+ kernel=kernel8.img
+
+changed: [cab-test]
+
+TASK [cabinet_tweaks : Per-core option dirs exist] *****************************
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/.config/retroarch/config/PCSX-ReARMed
+ 
+
+changed: [cab-test] => (item=PCSX-ReARMed)
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/.config/retroarch/config/Mupen64Plus-Next
+ 
+
+changed: [cab-test] => (item=Mupen64Plus-Next)
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/.config/retroarch/config/Flycast
+ 
+
+changed: [cab-test] => (item=Flycast)
+
+TASK [cabinet_tweaks : Per-core options (one lineinfile per key)] **************
+--- before: /home/player/.config/retroarch/config/PCSX-ReARMed/PCSX-ReARMed.opt (file attributes)
++++ after: /home/player/.config/retroarch/config/PCSX-ReARMed/PCSX-ReARMed.opt (file attributes)
+@@ -1,2 +1,2 @@
+-    mode: '0664'
++    mode: '0644'
+ 
+
+changed: [cab-test] => (item=PCSX-ReARMed: pcsx_rearmed_neon_enhancement_enable)
+--- before: /home/player/.config/retroarch/config/PCSX-ReARMed/PCSX-ReARMed.opt (file attributes)
++++ after: /home/player/.config/retroarch/config/PCSX-ReARMed/PCSX-ReARMed.opt (file attributes)
+@@ -1,2 +1,2 @@
+-    mode: '0664'
++    mode: '0644'
+ 
+
+changed: [cab-test] => (item=PCSX-ReARMed: pcsx_rearmed_neon_enhancement_no_main)
+--- before: /home/player/.config/retroarch/config/Mupen64Plus-Next/Mupen64Plus-Next.opt (file attributes)
++++ after: /home/player/.config/retroarch/config/Mupen64Plus-Next/Mupen64Plus-Next.opt (file attributes)
+@@ -1,2 +1,2 @@
+-    mode: '0664'
++    mode: '0644'
+ 
+
+changed: [cab-test] => (item=Mupen64Plus-Next: mupen64plus-43screensize)
+--- before: /home/player/.config/retroarch/config/Flycast/Flycast.opt (file attributes)
++++ after: /home/player/.config/retroarch/config/Flycast/Flycast.opt (file attributes)
+@@ -1,2 +1,2 @@
+-    mode: '0664'
++    mode: '0644'
+ 
+
+changed: [cab-test] => (item=Flycast: reicast_internal_resolution)
+
+TASK [cabinet_tweaks : retroarch.cfg hotkeys (Select+Start exits) and fps_show] ***
+ok: [cab-test] => (item=input_enable_hotkey_btn)
+ok: [cab-test] => (item=input_exit_emulator_btn)
+ok: [cab-test] => (item=input_menu_toggle_btn)
+--- before: /home/player/.config/retroarch/retroarch.cfg (content)
++++ after: /home/player/.config/retroarch/retroarch.cfg (content)
+@@ -160,7 +160,7 @@
+ filter_by_current_core = "false"
+ flicker_filter_enable = "false"
+ flicker_filter_index = "0"
+-fps_show = "true"
++fps_show = "false"
+ fps_update_interval = "256"
+ frame_time_counter_reset_after_fastforwarding = "false"
+ frame_time_counter_reset_after_load_state = "false"
+
+changed: [cab-test] => (item=fps_show)
+
+TASK [cabinet_tweaks : Ship the transparent-cursor generator] ******************
+--- before
++++ after: /home/dev/repo/ansible/roles/cabinet_tweaks/files/gen_cursor.py
+@@ -0,0 +1,57 @@
++#!/usr/bin/env python3
++"""Generate a fully-transparent Xcursor theme 'blank' so cage/wlroots and SDL
++draw no visible pointer on the kiosk (the cabinet has no mouse at all).
++Writes the theme under ~/.icons/blank/. wlroots + SDL(Wayland) honour
++XCURSOR_THEME / XCURSOR_SIZE from the environment."""
++import os, struct
++
++HOME = os.path.expanduser('~')
++CURS = os.path.join(HOME, '.icons', 'blank', 'cursors')
++os.makedirs(CURS, exist_ok=True)
++
++def xcursor_blank(path):
++    # One 1x1 fully-transparent ARGB image, as a minimal Xcursor file.
++    w = h = 1
++    xhot = yhot = 0
++    delay = 0
++    nominal = 24                      # nominal size this image serves
++    pixels = struct.pack('<I', 0x00000000)  # transparent BGRA/ARGB = 0
++    # image chunk
++    img_hdr = struct.pack('<IIIII', 36, 0xfffd0002, nominal, 1, w) \
++            + struct.pack('<IIIII', h, xhot, yhot, delay, 0)[:16]  # width already in; pad
++    # Build chunk explicitly to the documented layout:
++    chunk = struct.pack('<IIII', 36, 0xfffd0002, nominal, 1)   # size, type, subtype(size), version
++    chunk += struct.pack('<IIIII', w, h, xhot, yhot, delay)    # width,height,xhot,yhot,delay
++    chunk += pixels
++    # file header
++    magic = b'Xcur'
++    header_size = 16
++    version = 0x00010000
++    ntoc = 1
++    fhdr = magic + struct.pack('<III', header_size, version, ntoc)
++    toc_size = 12
++    body_offset = len(fhdr) + toc_size
++    toc = struct.pack('<III', 0xfffd0002, nominal, body_offset)
++    with open(path, 'wb') as f:
++        f.write(fhdr + toc + chunk)
++
++main_cursor = os.path.join(CURS, 'left_ptr')
++xcursor_blank(main_cursor)
++
++# symlink the common cursor names wlroots / SDL / apps may request
++for name in ('default', 'pointer', 'arrow', 'hand1', 'hand2', 'xterm',
++             'text', 'top_left_arrow', 'left_ptr_watch', 'watch', 'wait',
++             'crosshair', 'fleur', 'grab', 'grabbing'):
++    link = os.path.join(CURS, name)
++    try:
++        if os.path.lexists(link):
++            os.remove(link)
++        os.symlink('left_ptr', link)
++    except OSError:
++        pass
++
++with open(os.path.join(HOME, '.icons', 'blank', 'index.theme'), 'w') as f:
++    f.write('[Icon Theme]\nName=blank\nComment=Transparent cursor for kiosk\n')
++
++print('wrote', main_cursor, os.path.getsize(main_cursor), 'bytes')
++print('cursors:', sorted(os.listdir(CURS)))
+
+changed: [cab-test]
+
+TASK [cabinet_tweaks : Generate the blank Xcursor theme (the script writes under $HOME/.icons/blank)] ***
+ok: [cab-test]
+
+TASK [cabinet_tweaks : Export the blank cursor theme in the tty1 block of .bash_profile] ***
+ok: [cab-test]
+
+TASK [cabinet_tweaks : Check for es_settings.xml] ******************************
+ok: [cab-test]
+
+TASK [cabinet_tweaks : Set the ES-DE collection/startup keys] ******************
+changed: [cab-test] => (item=(censored due to no_log))
+ok: [cab-test] => (item=(censored due to no_log))
+changed: [cab-test] => (item=(censored due to no_log))
+ok: [cab-test] => (item=(censored due to no_log))
+
+TASK [cabinet_tweaks : Stat the pinned libretro cores] *************************
+ok: [cab-test] => (item=nes: nestopia_libretro.so)
+ok: [cab-test] => (item=cps1: fbneo_libretro.so)
+ok: [cab-test] => (item=cps2: fbneo_libretro.so)
+ok: [cab-test] => (item=cps3: fbneo_libretro.so)
+ok: [cab-test] => (item=psx: pcsx_rearmed_libretro.so)
+
+TASK [cabinet_tweaks : Assert every pinned system's libretro core is installed] ***
+ok: [cab-test] => (item=nes) => 
+    ansible_loop_var: item
+    changed: false
+    item:
+        ansible_loop_var: item
+        ansible_parsed: true
+        changed: false
+        failed: false
+        item:
+            key: nes
+            value:
+                core: nestopia_libretro.so
+                label: Nestopia UE
+        stat:
+            atime: 1794538364.0972714
+            attr_flags: e
+            attributes:
+            - extents
+            block_size: 4096
+            blocks: 12416
+            charset: binary
+            checksum: 811f9623f731aaa7aa81bd33a382e17355246e9e
+            ctime: 1794538364.0992718
+            dev: 45826
+            device_type: 0
+            disk_usage_bytes: 6356992
+            executable: true
+            exists: true
+            gid: 0
+            gr_name: root
+            inode: 264287
+            isblk: false
+            ischr: false
+            isdir: false
+            isfifo: false
+            isgid: false
+            islnk: false
+            isreg: true
+            issock: false
+            isuid: false
+            mimetype: application/x-sharedlib
+            mode: '0755'
+            mtime: 1794538364.0992718
+            nlink: 1
+            path: /usr/lib/aarch64-linux-gnu/libretro/nestopia_libretro.so
+            pw_name: root
+            readable: true
+            rgrp: true
+            roth: true
+            rusr: true
+            size: 6355264
+            uid: 0
+            version: '130260146'
+            wgrp: false
+            woth: false
+            writeable: false
+            wusr: true
+            xgrp: true
+            xoth: true
+            xusr: true
+    msg: All assertions passed
+ok: [cab-test] => (item=cps1) => 
+    ansible_loop_var: item
+    changed: false
+    item:
+        ansible_loop_var: item
+        ansible_parsed: true
+        changed: false
+        failed: false
+        item:
+            key: cps1
+            value:
+                core: fbneo_libretro.so
+                label: FinalBurn Neo
+        stat:
+            atime: 1794538364.0222607
+            attr_flags: e
+            attributes:
+            - extents
+            block_size: 4096
+            blocks: 159200
+            charset: binary
+            checksum: cb6ea7dfdf367e30a04bf8fda2ec8e428e6eeea6
+            ctime: 1794538364.0652668
+            dev: 45826
+            device_type: 0
+            disk_usage_bytes: 81510400
+            executable: true
+            exists: true
+            gid: 0
+            gr_name: root
+            inode: 264280
+            isblk: false
+            ischr: false
+            isdir: false
+            isfifo: false
+            isgid: false
+            islnk: false
+            isreg: true
+            issock: false
+            isuid: false
+            mimetype: application/x-sharedlib
+            mode: '0755'
+            mtime: 1794538364.0652668
+            nlink: 1
+            path: /usr/lib/aarch64-linux-gnu/libretro/fbneo_libretro.so
+            pw_name: root
+            readable: true
+            rgrp: true
+            roth: true
+            rusr: true
+            size: 81506248
+            uid: 0
+            version: '1274259194'
+            wgrp: false
+            woth: false
+            writeable: false
+            wusr: true
+            xgrp: true
+            xoth: true
+            xusr: true
+    msg: All assertions passed
+ok: [cab-test] => (item=cps2) => 
+    ansible_loop_var: item
+    changed: false
+    item:
+        ansible_loop_var: item
+        ansible_parsed: true
+        changed: false
+        failed: false
+        item:
+            key: cps2
+            value:
+                core: fbneo_libretro.so
+                label: FinalBurn Neo
+        stat:
+            atime: 1794538364.0222607
+            attr_flags: e
+            attributes:
+            - extents
+            block_size: 4096
+            blocks: 159200
+            charset: binary
+            checksum: cb6ea7dfdf367e30a04bf8fda2ec8e428e6eeea6
+            ctime: 1794538364.0652668
+            dev: 45826
+            device_type: 0
+            disk_usage_bytes: 81510400
+            executable: true
+            exists: true
+            gid: 0
+            gr_name: root
+            inode: 264280
+            isblk: false
+            ischr: false
+            isdir: false
+            isfifo: false
+            isgid: false
+            islnk: false
+            isreg: true
+            issock: false
+            isuid: false
+            mimetype: application/x-sharedlib
+            mode: '0755'
+            mtime: 1794538364.0652668
+            nlink: 1
+            path: /usr/lib/aarch64-linux-gnu/libretro/fbneo_libretro.so
+            pw_name: root
+            readable: true
+            rgrp: true
+            roth: true
+            rusr: true
+            size: 81506248
+            uid: 0
+            version: '1274259194'
+            wgrp: false
+            woth: false
+            writeable: false
+            wusr: true
+            xgrp: true
+            xoth: true
+            xusr: true
+    msg: All assertions passed
+ok: [cab-test] => (item=cps3) => 
+    ansible_loop_var: item
+    changed: false
+    item:
+        ansible_loop_var: item
+        ansible_parsed: true
+        changed: false
+        failed: false
+        item:
+            key: cps3
+            value:
+                core: fbneo_libretro.so
+                label: FinalBurn Neo
+        stat:
+            atime: 1794538364.0222607
+            attr_flags: e
+            attributes:
+            - extents
+            block_size: 4096
+            blocks: 159200
+            charset: binary
+            checksum: cb6ea7dfdf367e30a04bf8fda2ec8e428e6eeea6
+            ctime: 1794538364.0652668
+            dev: 45826
+            device_type: 0
+            disk_usage_bytes: 81510400
+            executable: true
+            exists: true
+            gid: 0
+            gr_name: root
+            inode: 264280
+            isblk: false
+            ischr: false
+            isdir: false
+            isfifo: false
+            isgid: false
+            islnk: false
+            isreg: true
+            issock: false
+            isuid: false
+            mimetype: application/x-sharedlib
+            mode: '0755'
+            mtime: 1794538364.0652668
+            nlink: 1
+            path: /usr/lib/aarch64-linux-gnu/libretro/fbneo_libretro.so
+            pw_name: root
+            readable: true
+            rgrp: true
+            roth: true
+            rusr: true
+            size: 81506248
+            uid: 0
+            version: '1274259194'
+            wgrp: false
+            woth: false
+            writeable: false
+            wusr: true
+            xgrp: true
+            xoth: true
+            xusr: true
+    msg: All assertions passed
+ok: [cab-test] => (item=psx) => 
+    ansible_loop_var: item
+    changed: false
+    item:
+        ansible_loop_var: item
+        ansible_parsed: true
+        changed: false
+        failed: false
+        item:
+            key: psx
+            value:
+                core: pcsx_rearmed_libretro.so
+                label: PCSX ReARMed
+        stat:
+            atime: 1794538364.0992718
+            attr_flags: e
+            attributes:
+            - extents
+            block_size: 4096
+            blocks: 3448
+            charset: binary
+            checksum: 45680c5f8dd11ad21432d875dd00bb27f77bf549
+            ctime: 1794538364.0992718
+            dev: 45826
+            device_type: 0
+            disk_usage_bytes: 1765376
+            executable: true
+            exists: true
+            gid: 0
+            gr_name: root
+            inode: 264288
+            isblk: false
+            ischr: false
+            isdir: false
+            isfifo: false
+            isgid: false
+            islnk: false
+            isreg: true
+            issock: false
+            isuid: false
+            mimetype: application/x-sharedlib
+            mode: '0755'
+            mtime: 1794538364.0992718
+            nlink: 1
+            path: /usr/lib/aarch64-linux-gnu/libretro/pcsx_rearmed_libretro.so
+            pw_name: root
+            readable: true
+            rgrp: true
+            roth: true
+            rusr: true
+            size: 1761648
+            uid: 0
+            version: '2487408347'
+            wgrp: false
+            woth: false
+            writeable: false
+            wusr: true
+            xgrp: true
+            xoth: true
+            xusr: true
+    msg: All assertions passed
+
+TASK [cabinet_tweaks : Gamelist directories exist] *****************************
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/ES-DE/gamelists/nes
+ 
+
+changed: [cab-test] => (item=nes)
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/ES-DE/gamelists/cps1
+ 
+
+changed: [cab-test] => (item=cps1)
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/ES-DE/gamelists/cps2
+ 
+
+changed: [cab-test] => (item=cps2)
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/ES-DE/gamelists/cps3
+ 
+
+changed: [cab-test] => (item=cps3)
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/ES-DE/gamelists/psx
+ 
+
+changed: [cab-test] => (item=psx)
+
+TASK [cabinet_tweaks : Create a missing gamelist with the alternativeEmulator block] ***
+ok: [cab-test] => (item=nes)
+ok: [cab-test] => (item=cps1)
+ok: [cab-test] => (item=cps2)
+ok: [cab-test] => (item=cps3)
+ok: [cab-test] => (item=psx)
+
+TASK [cabinet_tweaks : Insert the alternativeEmulator block when absent] *******
+ok: [cab-test] => (item=nes)
+ok: [cab-test] => (item=cps1)
+ok: [cab-test] => (item=cps2)
+ok: [cab-test] => (item=cps3)
+ok: [cab-test] => (item=psx)
+
+TASK [cabinet_tweaks : Replace a wrong alternativeEmulator label] **************
+ok: [cab-test] => (item=nes)
+ok: [cab-test] => (item=cps1)
+ok: [cab-test] => (item=cps2)
+ok: [cab-test] => (item=cps3)
+ok: [cab-test] => (item=psx)
+
+TASK [dreamcast : Install flycast runtime libraries] ***************************
+ok: [cab-test]
+
+TASK [dreamcast : Create the flycast dir] **************************************
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /data/emulators/flycast
+ 
+
+changed: [cab-test]
+
+TASK [dreamcast : Look for the local flycast build] ****************************
+ok: [cab-test -> localhost]
+
+TASK [dreamcast : Warn when no local build exists] *****************************
+ok: [cab-test] => 
+    msg: WARN /home/dev/repo/ansible/../../build/flycast/out/flycast not
+        found; flycast binary NOT deployed. Build it (build/flycast) or set dreamcast_flycast_binary_src.
+
+TASK [dreamcast : Ship the launcher and the Select+Start exit watcher] *********
+ok: [cab-test] => (item=flycast-run.sh)
+ok: [cab-test] => (item=flycast-exit-combo.py)
+
+TASK [dreamcast : Create flycast's data dir] ***********************************
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/.local/share/flycast
+ 
+
+changed: [cab-test]
+
+TASK [dreamcast : Link BIOS into flycast's data dir (links only, BIOS never in git)] ***
+ok: [cab-test] => (item=dc_boot.bin)
+ok: [cab-test] => (item=dc_flash.bin)
+ok: [cab-test] => (item=naomi.zip)
+ok: [cab-test] => (item=naomi2.zip)
+ok: [cab-test] => (item=awbios.zip)
+
+TASK [dreamcast : Create flycast's config dir] *********************************
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/.config/flycast
+ 
+
+changed: [cab-test]
+
+TASK [dreamcast : Set the emu.cfg keys we care about] **************************
+ok: [cab-test] => (item=config.pvr.rend=0)
+ok: [cab-test] => (item=config.rend.Resolution=960)
+ok: [cab-test] => (item=config.rend.vsync=yes)
+ok: [cab-test] => (item=config.rend.WideScreen=no)
+ok: [cab-test] => (item=config.rend.ShowFPS=no)
+ok: [cab-test] => (item=window.fullscreen=yes)
+ok: [cab-test] => (item=window.maximized=yes)
+ok: [cab-test] => (item=window.width=1920)
+ok: [cab-test] => (item=window.height=1080)
+ok: [cab-test] => (item=window.left=0)
+ok: [cab-test] => (item=window.top=0)
+
+TASK [dreamcast : Check for ES-DE find rules] **********************************
+ok: [cab-test]
+
+TASK [dreamcast : Add the FLYCAST emulator to es_find_rules.xml] ***************
+ok: [cab-test]
+
+TASK [dreamcast : Check for the dreamcast gamelist] ****************************
+ok: [cab-test]
+
+TASK [dreamcast : Make Flycast (Standalone) the dreamcast alternative emulator] ***
+ok: [cab-test]
+
+PLAY RECAP *********************************************************************
+cab-test                   : ok=30   changed=10   unreachable=0    failed=0    skipped=3    rescued=0    ignored=0   
+

@@ -1,0 +1,36 @@
+# N64 default panel (header of skills/controls/n64_games.tsv; card `n64`):
+#   Jab = B   Strong = C-Up   Fierce = R   /   Short = A   Forward = Z   Roundhouse = C-Down
+# Mupen64Plus-Next RetroPad: Y = N64 B and B = N64 A (identity, so not listed), L2 (12) = Z, R1 (11) = R,
+# right analog = the C buttons (23 R-Y- = C-Up, 22 R-Y+ = C-Down). So panel X (Strong) -> 23,
+# L (Fierce) -> 11, A (Forward) -> 12, R (Roundhouse) -> 22, the same for player 2.
+# Not on the panel: N64 L, C-Left, C-Right (games that need them get a game remap, #64).
+# Core remap: a game remap (<rom stem>.rmp, e.g. Robotron 64.rmp) replaces this file for that game.
+# Captured as-is from the cabinet 2026-11-14 (Platform #56 found it live); the turbo lines are RetroArch's
+# defaults written on save (input_turbo_bind = -1: no button starts turbo).
+input_libretro_device_p1 = "1"
+input_libretro_device_p2 = "1"
+input_libretro_device_p3 = "1"
+input_libretro_device_p4 = "1"
+input_player1_analog_dpad_mode = "0"
+input_player1_btn_a = "12"
+input_player1_btn_l = "11"
+input_player1_btn_r = "22"
+input_player1_btn_x = "23"
+input_player2_analog_dpad_mode = "0"
+input_player2_btn_a = "12"
+input_player2_btn_l = "11"
+input_player2_btn_r = "22"
+input_player2_btn_x = "23"
+input_player3_analog_dpad_mode = "0"
+input_player4_analog_dpad_mode = "0"
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "1"
+input_remap_port_p3 = "2"
+input_remap_port_p4 = "3"
+input_turbo_allow_dpad = "false"
+input_turbo_bind = "-1"
+input_turbo_button = "0"
+input_turbo_duty_cycle = "0"
+input_turbo_enable = "true"
+input_turbo_mode = "0"
+input_turbo_period = "6"

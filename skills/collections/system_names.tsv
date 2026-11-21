@@ -1,0 +1,3 @@
+# System display names and facts that override nested.py SYSTEM_TITLES / SYSTEM_FACTS (#190). Read by nested.py
+# (nested.data_path: personal/skills/collections/system_names.tsv in a private checkout wins over this file).
+# Tab separated: system<TAB>carousel title<TAB>maker<TAB>launch year (digits or empty)<TAB>kind. No rows = the built-in names.

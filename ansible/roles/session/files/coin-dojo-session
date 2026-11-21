@@ -1,0 +1,304 @@
+#!/bin/bash
+# coin-dojo-session (#209, part C of #204): the cabinet's screen session. Installed by the ansible role `session` to
+# /usr/local/bin/coin-dojo-session; the tty1 block of ~/.bash_profile runs `exec cage -d -- coin-dojo-session`, so every
+# mode (the boot menu, ES-DE, Fightcade) runs in this ONE cage, one at a time.
+#
+#   coin-dojo-session            the loop (inside cage)
+#   coin-dojo-session --check    source the config and check the commands exist; exit 0 = OK (the .bash_profile
+#                               lockout guard and the role's install gate run it; a failure means plain ES-DE)
+#
+# Loop (contract: #204 "Interfaces v2"):
+#   1. Power-on: the boot menu with countdown HK_COUNTDOWN (5). After a mode ends: the menu with countdown 0 (waits).
+#      Boot menu output other than exactly `esde`/`fightcade` with exit 0 (crash, exit 3 = no display, missing app,
+#      SIGTERM 143 with no answer) = esde.
+#   2. Run the mode in the foreground: esde = HK_ESDE; fightcade = HK_FIGHTCADE (missing / not executable = esde).
+#   3. Mode ended: coin-dojo-cleanup (TERM, then KILL every emulator/app; logs a pgrep proof).
+#   4. Next: the request file $HK_RUN_DIR/next-mode (menu|esde|fightcade, read then deleted; unknown or stale =
+#      written before the mode started = menu) wins. Without one: ES-DE quit cleanly (rc 0) = menu; ES-DE killed by
+#      KILL/TERM/HUP/INT (a deploy restart, the OOM killer) = ES-DE again; any other exit (a crash) = menu;
+#      Fightcade ended for any reason = menu.
+#   Back-off: 3 failures (rc != 0) of one mode in 60 s = no automatic restart of it; the menu shows (it gets
+#   COIN_DOJO_BOOTMENU_MESSAGE). When the menu itself fails during a back-off, wait HK_BACKOFF_SLEEP s first.
+#   SIGTERM/SIGHUP/SIGINT (poweroff, logout): stop the mode, clean up, exit 0. Never starts another mode.
+#   SIGUSR1 (coin-dojo-session-stop): end the current mode (TERM, KILL after HK_STOP_GRACE s); ignored in the menu.
+#   The parent (cage) gone: end like SIGTERM before the next start (found on the test VM: an orphan kept looping).
+#
+# State in $HK_RUN_DIR (tmpfs, /run/user/<uid>/coin-dojo): current-mode (menu|esde|fightcade, read by trophiesd, the
+# deploy game guards and stickmouse), next-mode (requests), session.pid (for coin-dojo-session-stop).
+# Config: $COIN_DOJO_SESSION_CONF (default /usr/local/etc/coin-dojo-session.conf, rendered by the role); the
+# defaults below are the cabinet's, so a missing config still gives a working ES-DE.
+# Log: HK_LOG (default ~/.cache/coin-dojo/session.log, cut to its last 200 lines at start) and stderr.
+# Bash 3.2 compatible on purpose (the tests also run it on macOS).
+set -u
+
+HK_RUN_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/coin-dojo"
+HK_LOG="${HOME:-/tmp}/.cache/coin-dojo/session.log"
+HK_BOOTMENU_PY=python3
+HK_BOOTMENU_APP=/data/coin-dojo/settings/bootmenu_app.py
+HK_COUNTDOWN=5
+HK_ESDE=(/usr/local/bin/es-de --resolution 1440 1080 --fullscreen-padding 1)
+HK_FIGHTCADE=/usr/local/bin/coin-dojo-fightcade
+HK_CLEANUP=/usr/local/bin/coin-dojo-cleanup
+HK_BACKOFF_N=3
+HK_BACKOFF_WINDOW=60
+HK_BACKOFF_SLEEP=30
+HK_STOP_GRACE=5
+CONF=${COIN_DOJO_SESSION_CONF:-/usr/local/etc/coin-dojo-session.conf}
+CONF_OK=1
+if [ -r "$CONF" ]; then
+  # shellcheck source=/dev/null
+  . "$CONF" || CONF_OK=0
+else
+  CONF_OK=0
+fi
+
+if [ "${1:-}" = "--check" ]; then
+  bad=""
+  [ "$CONF_OK" = 1 ] || bad="$bad config $CONF unreadable or broken;"
+  [ -x "${HK_ESDE[0]}" ] || bad="$bad ES-DE ${HK_ESDE[0]} not executable;"
+  [ -x "$HK_CLEANUP" ] || bad="$bad cleanup $HK_CLEANUP not executable;"
+  case "$HK_COUNTDOWN$HK_BACKOFF_N$HK_BACKOFF_WINDOW$HK_BACKOFF_SLEEP$HK_STOP_GRACE" in
+    *[!0-9]*) bad="$bad a number in the config is not a number;" ;;
+  esac
+  if [ -n "$bad" ]; then echo "coin-dojo-session --check: FAIL:$bad" >&2; exit 1; fi
+  echo "coin-dojo-session --check: OK"
+  exit 0
+fi
+
+REQ_FILE=$HK_RUN_DIR/next-mode
+CUR_FILE=$HK_RUN_DIR/current-mode
+PID_FILE=$HK_RUN_DIR/session.pid
+MARK=$HK_RUN_DIR/.mode-start
+MENU_OUT=$HK_RUN_DIR/.menu-answer
+CHILD=""
+CUR=""
+PARENT=$PPID
+KILLER=""
+# shellcheck disable=SC2034  # read and written through eval (record_failure, backoff_active)
+FAILS_esde="" FAILS_fightcade=""
+
+log() {
+  local line
+  line="$(date '+%F %T') coin-dojo-session[$$]: $*"
+  printf '%s\n' "$line" >>"$HK_LOG" 2>/dev/null
+  printf '%s\n' "$line" >&2
+}
+
+# Last resort: something basic is broken (no run dir). ES-DE alone, as before #209.
+die_to_esde() {
+  log "FATAL: $*; running plain ES-DE"
+  exec "${HK_ESDE[@]}"
+}
+
+set_current() {
+  printf '%s\n' "$1" >"$CUR_FILE.tmp" 2>/dev/null && mv -f "$CUR_FILE.tmp" "$CUR_FILE"
+}
+
+# cage is the session's parent: when it is gone (crashed, killed) nothing can show, and tty1 logs in again with a
+# new cage and a new session. This one ends instead of starting modes into a dead display.
+parent_check() {
+  if ! kill -0 "$PARENT" 2>/dev/null; then
+    log "the parent (cage, pid $PARENT) is gone"
+    on_term
+  fi
+}
+
+# run_child LABEL CMD...: start CMD in the background (stdout to $OUT when set) and wait for it, so the traps run
+# while it runs. Sets RC (128+N = killed by signal N).
+run_child() {
+  local r
+  parent_check
+  CUR=$1
+  shift
+  touch "$MARK"
+  if [ -n "${OUT:-}" ]; then "$@" >"$OUT" & else "$@" & fi
+  CHILD=$!
+  RC=0
+  while kill -0 "$CHILD" 2>/dev/null; do
+    wait "$CHILD"
+    r=$?
+    [ "$r" -eq 127 ] && break
+    RC=$r
+  done
+  wait "$CHILD" 2>/dev/null
+  r=$?
+  [ "$r" -ne 127 ] && RC=$r
+  CHILD=""
+  if [ -n "$KILLER" ]; then kill "$KILLER" 2>/dev/null; KILLER=""; fi
+}
+
+on_usr1() {
+  if [ -z "$CHILD" ] || [ "$CUR" = menu ]; then
+    log "stop request ignored (in ${CUR:-no mode})"
+    return
+  fi
+  log "stop request: ending $CUR (pid $CHILD): TERM, KILL after ${HK_STOP_GRACE} s"
+  kill -TERM "$CHILD" 2>/dev/null
+  ( sleep "$HK_STOP_GRACE"; kill -KILL "$CHILD" 2>/dev/null ) &
+  KILLER=$!
+}
+
+on_term() {
+  local i=0 steps=$((HK_STOP_GRACE * 10))
+  trap '' TERM HUP INT USR1
+  log "session ending: stopping ${CUR:-nothing}, no respawn"
+  if [ -n "$CHILD" ]; then
+    kill -TERM "$CHILD" 2>/dev/null
+    while kill -0 "$CHILD" 2>/dev/null && [ "$i" -lt "$steps" ]; do sleep 0.1; i=$((i + 1)); done
+    kill -KILL "$CHILD" 2>/dev/null
+  fi
+  [ -n "$KILLER" ] && kill "$KILLER" 2>/dev/null
+  [ -x "$HK_CLEANUP" ] && "$HK_CLEANUP" >>"$HK_LOG" 2>&1
+  rm -f "$CUR_FILE" "$PID_FILE" "$MARK" "$MENU_OUT"
+  exit 0
+}
+
+# Failures per mode: a list of epoch seconds in FAILS_<mode>.
+record_failure() {
+  local now var
+  now=$(date +%s)
+  var=FAILS_$1
+  eval "$var=\"\${$var} $now\""
+}
+
+backoff_active() {
+  local now n=0 t var list
+  now=$(date +%s)
+  var=FAILS_$1
+  eval "list=\${$var}"
+  for t in $list; do
+    [ $((now - t)) -lt "$HK_BACKOFF_WINDOW" ] && n=$((n + 1))
+  done
+  [ "$n" -ge "$HK_BACKOFF_N" ]
+}
+
+# Reads and deletes the request. REQ = menu|esde|fightcade, or empty when there is none.
+take_request() {
+  local stale=0
+  REQ=""
+  [ -e "$REQ_FILE" ] || return 0
+  REQ=$(head -c 32 "$REQ_FILE" 2>/dev/null | tr -d '[:space:]')
+  if [ -e "$MARK" ] && [ "$REQ_FILE" -ot "$MARK" ]; then stale=1; fi
+  rm -f "$REQ_FILE"
+  case "$REQ" in
+    menu | esde | fightcade) ;;
+    *) log "unknown next-mode '$REQ' -> menu"; REQ=menu; return 0 ;;
+  esac
+  if [ "$stale" = 1 ]; then log "stale next-mode '$REQ' (written before the mode started) -> menu"; REQ=menu; fi
+}
+
+# Shows the boot menu; sets NEXT to esde|fightcade. MENU_FAILED=1 when its answer was not usable.
+choose_mode() {
+  local answer
+  MENU_FAILED=0
+  set_current menu
+  if [ ! -f "$HK_BOOTMENU_APP" ]; then
+    log "boot menu $HK_BOOTMENU_APP missing -> esde"
+    NEXT=esde
+    MENU_FAILED=1
+  else
+    rm -f "$MENU_OUT"
+    OUT=$MENU_OUT run_child menu env COIN_DOJO_BOOTMENU_MESSAGE="${MENU_MSG:-}" \
+      "$HK_BOOTMENU_PY" "$HK_BOOTMENU_APP" --countdown "$COUNT"
+    answer=$(head -n 1 "$MENU_OUT" 2>/dev/null | tr -d '[:space:]')
+    rm -f "$MENU_OUT"
+    if [ "$RC" -eq 0 ] && { [ "$answer" = esde ] || [ "$answer" = fightcade ]; }; then
+      log "boot menu: $answer"
+      NEXT=$answer
+    else
+      log "boot menu gave no usable answer (rc=$RC, answer='$answer') -> esde"
+      NEXT=esde
+      MENU_FAILED=1
+    fi
+  fi
+  COUNT=0
+  MENU_MSG=""
+  if [ "$MENU_FAILED" = 1 ] && backoff_active esde; then
+    log "back-off: ES-DE failed $HK_BACKOFF_N times in ${HK_BACKOFF_WINDOW} s and the menu is unusable; waiting ${HK_BACKOFF_SLEEP} s"
+    parent_check
+    sleep "$HK_BACKOFF_SLEEP" &
+    wait $!
+  fi
+}
+
+# Runs NEXT (esde|fightcade); sets MODE (what really ran), RC and SECS.
+run_mode() {
+  local t0
+  MODE=$NEXT
+  if [ "$MODE" = fightcade ] && [ ! -x "$HK_FIGHTCADE" ]; then
+    log "Fightcade mode is not installed ($HK_FIGHTCADE missing or not executable) -> esde"
+    MODE=esde
+  fi
+  set_current "$MODE"
+  log "starting $MODE"
+  t0=$(date +%s)
+  if [ "$MODE" = fightcade ]; then
+    OUT="" run_child fightcade "$HK_FIGHTCADE"
+  else
+    OUT="" run_child esde "${HK_ESDE[@]}"
+  fi
+  SECS=$(($(date +%s) - t0))
+  log "$MODE ended (rc=$RC after ${SECS} s)"
+  [ "$RC" -ne 0 ] && record_failure "$MODE"
+}
+
+cleanup() {
+  if [ -x "$HK_CLEANUP" ]; then
+    "$HK_CLEANUP" >>"$HK_LOG" 2>&1 || log "cleanup reported leftovers (see the cleanup lines above)"
+  else
+    log "cleanup $HK_CLEANUP missing"
+  fi
+}
+
+decide_next() {
+  take_request
+  if [ -n "$REQ" ]; then
+    log "request: $REQ"
+    NEXT=$REQ
+    return
+  fi
+  if [ "$MODE" = fightcade ]; then
+    NEXT=menu
+    return
+  fi
+  case "$RC" in
+    0) log "ES-DE quit -> menu"; NEXT=menu ;;
+    129 | 130 | 137 | 143)
+      if backoff_active esde; then
+        log "back-off: ES-DE failed $HK_BACKOFF_N times in ${HK_BACKOFF_WINDOW} s -> menu"
+        MENU_MSG="ARCADE stopped $HK_BACKOFF_N times in ${HK_BACKOFF_WINDOW} s"
+        NEXT=menu
+      else
+        log "ES-DE killed by signal $((RC - 128)) -> ES-DE again"
+        NEXT=esde
+      fi
+      ;;
+    *) log "ES-DE crashed (rc=$RC) -> menu"; MENU_MSG="ARCADE crashed (exit $RC)"; NEXT=menu ;;
+  esac
+}
+
+main() {
+  mkdir -p "$HK_RUN_DIR" 2>/dev/null && [ -w "$HK_RUN_DIR" ] || die_to_esde "run dir $HK_RUN_DIR not writable"
+  mkdir -p "$(dirname "$HK_LOG")" 2>/dev/null
+  if [ -f "$HK_LOG" ]; then tail -n 200 "$HK_LOG" >"$HK_LOG.tmp" 2>/dev/null && mv -f "$HK_LOG.tmp" "$HK_LOG"; fi
+  [ "$CONF_OK" = 1 ] || log "config $CONF unreadable or broken: using the built-in defaults"
+  trap on_term TERM HUP INT
+  trap on_usr1 USR1
+  echo $$ >"$PID_FILE"
+  if [ -e "$REQ_FILE" ]; then log "stale next-mode from before this session removed"; rm -f "$REQ_FILE"; fi
+  log "session start (countdown $HK_COUNTDOWN)"
+  cleanup
+  COUNT=$HK_COUNTDOWN
+  MENU_MSG=""
+  NEXT=menu
+  while :; do
+    [ "$NEXT" = menu ] && choose_mode
+    run_mode
+    cleanup
+    decide_next
+    # Never spin: a mode that died at once and is restarted right away waits a second.
+    if [ "$NEXT" != menu ] && [ "$SECS" -lt 1 ]; then sleep 1 & wait $!; fi
+  done
+}
+
+main

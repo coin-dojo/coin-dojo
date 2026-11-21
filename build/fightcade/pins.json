@@ -1,0 +1,25 @@
+{
+  "wine": {
+    "title": "Wine 10.0",
+    "url": "https://github.com/Kron4ek/Wine-Builds/releases/download/10.0/wine-10.0-amd64-wow64.tar.xz",
+    "file": "wine-10.0-amd64-wow64.tar.xz",
+    "sha256": "aeebbbf239e548f0136f1cd72a2e109dd9a572a8f703da3c09fa40d74d5c255f",
+    "size": 65074156
+  },
+  "electron": {
+    "title": "Electron 9.1.0",
+    "url": "https://github.com/electron/electron/releases/download/v9.1.0/electron-v9.1.0-linux-arm64.zip",
+    "file": "electron-v9.1.0-linux-arm64.zip",
+    "sha256": "b34c7906eff2f2a87eb849291a69907f93daee2730b2e4953b05d9cc9a163269",
+    "size": 76823422,
+    "shasums_url": "https://github.com/electron/electron/releases/download/v9.1.0/SHASUMS256.txt"
+  },
+  "fightcade": {
+    "title": "Fightcade 2.1.45",
+    "url": "https://web.fightcade.com/download/Fightcade-linux-v2.1.45.tar.gz",
+    "file": "Fightcade-linux-v2.1.45.tar.gz",
+    "sha256": "9880cbfa9b6e4a4eceab750c1d825d3c753ae4b1f84b53df421829e1423c50be",
+    "size": 164613755,
+    "version": "2.1.45"
+  }
+}

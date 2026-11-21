@@ -1,0 +1,17 @@
+// coin-dojo (#208): the keys set over Fightcade's own fcadefbneo.default.ini, one "key value" line each (FBNeo's
+// format). Option B (#92, the maintainer 2026-11-18): D3D9, fullscreen 1920x1080, 4:3 picture centred, gamma off, vsync off.
+{% for k, v in fightcade_ini_keys.items() %}
+{{ k }} {{ v }}
+{% endfor %}
+// ROMs read in place from the cabinet's folders through Wine's Z: drive (no second copy). [0] = roms/fightcade (#298:
+// Fightcade's own versions win), then the arcade folders; [7] = roms-extra (the lobby's ROM downloads; ES-DE does not scan it).
+{% for d in fightcade_rom_dirs %}
+szAppRomPaths[{{ loop.index0 }}] Z:{{ (fightcade_rom_root ~ '/' ~ d) | replace('/', '\\') }}\
+{% endfor %}
+szAppRomPaths[{{ fightcade_rom_dirs | length }}] Z:{{ fightcade_roms_extra | replace('/', '\\') }}\
+// #230: P1/P2 default inputs come from the cabinet's stick presets (15 = 0x0F: read szPlayerDefaultIni[n];
+// FBNeo gami.cpp GameInpDefault). A game's own config/games/<rom>.ini (F5) wins over them.
+{% for n in fightcade_preset_players %}
+nPlayerDefaultControls[{{ n - 1 }}] 15
+szPlayerDefaultIni[{{ n - 1 }}] Z:{{ (fightcade_presets_dir ~ '/coin-dojo-p' ~ n ~ '.ini') | replace('/', '\\') }}
+{% endfor %}

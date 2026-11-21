@@ -1,0 +1,18 @@
+# launcher (#62): guard -> install (default) or rollback (launcher_action=rollback, make launch-rollback).
+# Static imports so the role tag `launcher` reaches every task.
+- name: Launcher_action is install or rollback
+  ansible.builtin.assert:
+    that: launcher_action in ['install', 'rollback']
+    fail_msg: "launcher_action={{ launcher_action }}: use install or rollback"
+    quiet: true
+
+- name: Game guard
+  ansible.builtin.import_tasks: guard.yml
+
+- name: Install launch.py (backup + launch.py.prev, py_compile + argv gate, post-check)
+  ansible.builtin.import_tasks: install.yml
+  when: launcher_action == 'install'
+
+- name: Roll back to launch.py.prev
+  ansible.builtin.import_tasks: rollback.yml
+  when: launcher_action == 'rollback'

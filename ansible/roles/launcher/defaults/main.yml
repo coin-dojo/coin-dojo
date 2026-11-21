@@ -1,0 +1,42 @@
+# launcher (#62): install skills/collections/launch.py as ~/ES-DE/scripts/launch.py, the command of every
+# virtual ES-DE system (es_systems.xml has <loadExclusive/>: every game on the cabinet starts there), with
+# a rollback. Owner of launch.py: Emulation (skills/collections); this role: Platform's area, kept small.
+#
+#   make deploy-launch [LIMIT=coin-dojo-vm] [APPLY=1]     install (dry run unless APPLY=1)
+#   make launch-rollback [LIMIT=coin-dojo-vm] [APPLY=1]   put launch.py.prev back (dry run unless APPLY=1)
+#
+# --- levers: every value below is a pass-through of a declared hk_* variable (config/variables.d, docs/CONFIG.md).
+# Change them in config/local.yml, never here. Everything under "internal" is not a lever.
+launcher_user_home: "{{ hk_cabinet_home }}"
+# Game guard: never swap the launcher while a game runs (pgrep -x NAME, then pgrep -f PATTERN).
+launcher_game_procs: "{{ hk_game_procs }}"
+launcher_game_patterns: "{{ hk_game_patterns }}"
+
+# --- internal (not levers) ---------------------------------------------------------------------
+# No ES-DE restart: ES-DE runs `python3 .../launch.py %ROM%` as a new process per game, so the next
+# launch uses the new file.
+launcher_dest: "{{ launcher_user_home }}/ES-DE/scripts/launch.py"
+# The file the last install replaced; `make launch-rollback` restores it. Rewritten only when an
+# install really changes launch.py, so it is always "the version before the current one".
+launcher_prev: "{{ launcher_dest }}.prev"
+# Every install / rollback also copies the file it replaces to <root>/<stamp>-launch[-rollback]/.
+launcher_backup_root: "{{ launcher_user_home }}/ES-DE/themes/_backups"
+
+launcher_src_dir: "{{ hk_repo_root }}/skills/collections"
+launcher_src: "{{ launcher_src_dir }}/launch.py"
+launcher_check_src: "{{ launcher_src_dir }}/launch_check.py"
+launcher_expected_src: "{{ launcher_src_dir }}/launch_expected.json"
+launcher_python: python3
+
+# Must exist on the host before a launch.py that names them is installed (installed by retroarch122).
+launcher_require_files:
+  - /data/emulators/retroarch-1.22/retroarch
+  - /data/emulators/mupen64plus-gles/mupen64plus_next_libretro.so
+
+# launcher_post_expected: unset = the staged launch_expected.json (the test points it at a wrong file to
+# prove that a failed post-check puts launch.py.prev back).
+
+# install | rollback (make launch-rollback sets rollback)
+launcher_action: install
+
+launcher_pgrep: pgrep

@@ -1,0 +1,220 @@
+# share, hk_share_enable: true. Order: packages, the checker, smb.conf (validated), folders, login sync, mDNS entry,
+# units. A dry run on a cabinet without Samba yet stops after the package step's report (nothing to diff against).
+- name: Samba and avahi from Debian
+  ansible.builtin.apt:
+    name: "{{ share_packages }}"
+    state: present
+    install_recommends: false
+  become: true
+  register: share_pkgs
+
+- name: Dry run on a cabinet without Samba yet
+  ansible.builtin.set_fact:
+    share_fresh: "{{ ansible_check_mode and share_pkgs is changed }}"
+
+- name: Helper dir (root fs)
+  ansible.builtin.file:
+    path: "{{ share_libexec }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: The smb.conf checker and the live-subnet writer
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - { src: smbconf_check.py, dest: "{{ share_check }}" }
+    - { src: hosts_allow.py, dest: "{{ share_hosts_script }}" }
+  loop_control:
+    label: "{{ item.dest }}"
+  become: true
+
+# Every smbd start writes the allowed subnets first (smb.conf includes them; missing = loopback only).
+- name: Smbd drop-in dir
+  ansible.builtin.file:
+    path: "{{ share_smbd_dropin | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Smbd drop-in that writes the live subnets before it starts
+  ansible.builtin.template:
+    src: 50-coin-dojo-hosts.conf.j2
+    dest: "{{ share_smbd_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: share_dropin
+  notify: Restart smbd
+
+# validate: the checker on the rendered file (exactly roms + bios, guest off, SMB3, loopback + the live-subnet
+# include, the bios vetoes) and Samba's testparm.
+- name: Smb.conf (two shares only; checked before it is installed)
+  ansible.builtin.template:
+    src: smb.conf.j2
+    dest: "{{ share_conf }}"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+    validate: >-
+      /usr/bin/python3 {{ share_check }} --user {{ share_user | quote }}
+      {% for s in share_folders %}--share {{ (s.name ~ '=' ~ s.path) | quote }} {% endfor %}
+      --interfaces {{ share_interfaces | join(' ') | quote }} --hosts-file {{ share_hosts_file | quote }}
+      {% for v in share_bios_veto %}--bios-veto {{ v | quote }} {% endfor %}
+      {% for v in share_roms_veto %}--roms-veto {{ v | quote }} {% endfor %} --testparm %s
+  become: true
+  notify: Restart smbd
+  when: not share_fresh
+
+- name: The shared folders exist and belong to the cabinet user
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ share_user }}"
+    group: "{{ share_group }}"
+    mode: "0755"
+  loop: "{{ share_folders }}"
+  loop_control:
+    label: "{{ item.name }}: {{ item.path }}"
+  become: true
+
+- name: Login sync script (default login, passwd changes)
+  ansible.builtin.template:
+    src: coin-dojo-share-sync.j2
+    dest: "{{ share_sync }}"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Login sync units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ share_units }}"
+  become: true
+  register: share_units_written
+
+- name: Finder's Locations entry (mDNS service file)
+  ansible.builtin.copy:
+    src: coin-dojo-smb.service
+    dest: "{{ share_avahi_service }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: not share_fresh
+
+- name: Is NetworkManager installed (yes on the image and the cabinet, no on the test VM)
+  ansible.builtin.stat:
+    path: /etc/NetworkManager/dispatcher.d
+  register: share_nm
+
+- name: Restart smbd when a shared interface comes up (NetworkManager dispatcher)
+  ansible.builtin.template:
+    src: 60-coin-dojo-share.j2
+    dest: "{{ share_nm_dispatcher }}"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: share_nm.stat.isdir | default(false)
+
+- name: SKIP the dispatcher (no NetworkManager)
+  ansible.builtin.debug:
+    msg: "SKIP {{ share_nm_dispatcher }}: NetworkManager is not installed"
+  when: not (share_nm.stat.isdir | default(false))
+
+# nmbd = NetBIOS (UDP 137/138): not needed (disable netbios = yes; Finder and Windows find <name>.local over mDNS).
+- name: Nmbd is off and masked (no NetBIOS listener)
+  ansible.builtin.systemd:
+    name: nmbd.service
+    masked: true
+    state: "{{ omit if coin_dojo_image | default(false) | bool else 'stopped' }}"
+  become: true
+  when: not share_fresh
+
+- name: Smbd and avahi enabled and running
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: "{{ omit if coin_dojo_image | default(false) | bool else 'started' }}"
+    daemon_reload: "{{ not coin_dojo_image | default(false) | bool }}"
+  loop: [smbd.service, avahi-daemon.service]
+  become: true
+  when: not share_fresh
+
+- name: Login sync enabled (boot) and watching /etc/shadow
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    daemon_reload: "{{ not coin_dojo_image | default(false) | bool and share_units_written is changed }}"
+  loop: "{{ share_units }}"
+  become: true
+  when: not share_fresh
+
+- name: The path watch runs now (live cabinet)
+  ansible.builtin.systemd:
+    name: coin-dojo-share-sync.path
+    state: started
+  become: true
+  when: not share_fresh and not coin_dojo_image | default(false) | bool
+
+- name: Restart smbd now if smb.conf changed
+  ansible.builtin.meta: flush_handlers
+
+- name: The allowed subnets match the live interfaces now (reload, no restart)
+  ansible.builtin.command:
+    argv: [/usr/bin/python3, "{{ share_hosts_script }}", --interfaces, "{{ share_interfaces | reject('equalto', 'lo') | join(' ') }}",
+           --out, "{{ share_hosts_file }}", --reload]
+  become: true
+  register: share_hosts_run
+  changed_when: "'WROTE' in share_hosts_run.stdout"
+  when: not ansible_check_mode and not coin_dojo_image | default(false) | bool
+
+- name: Allowed clients
+  ansible.builtin.debug:
+    msg: "{{ share_hosts_run.stdout | default('') }}"
+  when: share_hosts_run.stdout is defined
+
+# The community image's default login (#265): Samba gets the same default while the Linux password is it.
+- name: Network login from the community default login
+  ansible.builtin.command:
+    argv: ["{{ share_sync }}", --default-login]
+  become: true
+  register: share_default
+  changed_when: "'SET:' in share_default.stdout"
+  when: not ansible_check_mode
+
+- name: Does the network folder have a login
+  ansible.builtin.command:
+    argv: ["{{ share_sync }}", --status]
+  become: true
+  register: share_status
+  changed_when: false
+  check_mode: false
+  when: not share_fresh
+
+- name: Say how to log in to the network folder
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Network folder: smb://' ~ (hk_cabinet_hostname if coin_dojo_image | default(false) | bool else ansible_hostname)
+         ~ '.local (roms, bios), user ' ~ share_user
+         if 'NOLOGIN' not in (share_status.stdout | default(''))
+         else 'WARN network folder: ' ~ share_user ~ ' has no network password yet. '
+              ~ ('On the cabinet: sudo smbpasswd -a ' ~ share_user if '(admin)' in (share_status.stdout | default(''))
+                 else 'Set it in SETTINGS > PASSWORD on the cabinet') }}
+  when: not share_fresh

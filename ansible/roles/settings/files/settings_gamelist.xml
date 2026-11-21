@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>./Settings.hks</path>
+		<name>Settings</name>
+		<desc>Wi-Fi, cabinet name, benchmark mode and RetroAchievements. LK opens the settings again, MK goes back to the main menu.</desc>
+		<genre>Settings</genre>
+		<nogamecount>true</nogamecount>
+	</game>
+</gameList>

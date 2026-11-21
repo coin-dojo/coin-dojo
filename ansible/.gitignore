@@ -1,0 +1,28 @@
+# --- SECRETS: SSH creds, vault files -----------------------------------------------
+*.vault
+vault.yml
+vault.yaml
+.vault_pass
+.env
+.env.*
+*.key
+*.pem
+id_*
+*_rsa
+*_ed25519
+secrets/
+**/secret*
+
+# --- Ansible runtime noise ----------------------------------------------------------------------
+*.retry
+.ansible/
+collections/
+fact_cache/
+__pycache__/
+*.pyc
+
+# --- OS / editor noise --------------------------------------------------------------------------
+.DS_Store
+._*
+*.swp
+*~

@@ -1,0 +1,8 @@
+# Debian/Raspberry Pi packages in the image that ship NO /usr/share/doc/<package>/copyright upstream (#293).
+# Read by scripts/licences.py: a package listed here with its exact version is not a release blocker; its row in
+# debian-packages.tsv says "none upstream" and names the source. Any other version, or any unlisted package
+# without a copyright file, still blocks a strict build, so a new upstream version is looked at again.
+# Checked 2026-11-20 from the archive's own .deb (bsdtar -t: no copyright file in the package).
+# Not legal advice; I'm not a lawyer.
+# package	version	reason	source_url
+raspberrypi-net-mods	1.4.4	Raspberry Pi config package (a Wi-Fi notice in /etc/profile.d and a NetworkManager conf.d file); the .deb ships no copyright file	https://archive.raspberrypi.com/debian/pool/main/r/raspberrypi-net-mods/

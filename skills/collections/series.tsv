@@ -1,0 +1,63 @@
+# Series folders for the nested main screen (collgen.py nested --series): the community example (#190).
+# A private checkout keeps its own list in personal/skills/collections/series.tsv, which wins (nested.data_path).
+# One row per franchise, tab separated:
+#   slug<TAB>title<TAB>name regex<TAB>systems<TAB>developer<TAB>min
+# slug     folder name (a-z 0-9 -), also the key in folder_text.tsv (virtual 'series')
+# title    what the carousel shows
+# name     Python regex, re.search on the DISPLAY name (the cleaned <name>); case-sensitive unless it starts with (?i)
+# systems  comma list of ES-DE system dirs the game must be in, or - for any
+# developer  regex that must match the whole <developer> text, or - for any (a game must pass name AND systems AND developer)
+# min      show the folder only with at least this many games; - means the default (3).
+# A game can match several series and still sits in its genre and decade folders. A bad regex or row stops the run (exit 3).
+mega-man	Mega Man	^(Mega Man|Rockman)\b	-	-	-
+toaplan	Toaplan	.	-	Toaplan	-
+cave	Cave	^(?!.*DonPachi)	-	Cave	-
+king-of-fighters	The King of Fighters	^The King of Fighters	-	-	-
+gradius	Gradius and Parodius	Gradius|Parodius|^Salamander|^Life Force|^Nemesis$|^Vulcan Venture	-	-	-
+fatal-fury	Fatal Fury	Fatal Fury|^Garou	-	-	-
+bomberman	Bomberman	Bomberman	-	-	-
+tmnt	Teenage Mutant Ninja Turtles	^Teenage Mutant	-	-	-
+double-dragon	Double Dragon	Double Dragon	-	-	-
+tetris	Tetris	Tetris	-	-	-
+wonder-boy	Wonder Boy and Monster World	Wonder Boy|Monster World	-	-	-
+194x	1942 to 19XX	^(194[1-4]|19XX)\b	-	-	-
+castlevania	Castlevania	Castlevania	-	-	-
+contra	Contra	^(Super )?Contra\b|^Super C$|^Probotector	-	-	-
+strikers	Strikers 1945 and Aero Fighters	^Strikers 1945|^Aero Fighters|Sonic Wings	-	-	-
+donpachi	DonPachi	DonPachi	-	-	-
+donkey-kong	Donkey Kong	^Donkey Kong	-	-	-
+puyo	Puyo Puyo and Puzzle Bobble	^Puyo Puyo|Puzzle Bobble|Mean Bean Machine	-	-	-
+r-type	R-Type	^(Super )?R-Type	-	-	-
+galaga	Galaga	^(Galaga|Galaxian|Gaplus)	-	-	-
+pac-man	Pac-Man	Pac-Man|Pac-Land	-	-	-
+shinobi	Shinobi	Shinobi	-	-	-
+sonic	Sonic the Hedgehog	(?i)^(Sonic (The Hedgehog|CD|&)|SegaSonic The Hedgehog)	-	-	-
+metal-slug	Metal Slug	^Metal Slug	-	-	-
+samurai-shodown	Samurai Shodown	^Samurai (Shodown|Spirits)	-	-	-
+ghosts-n-goblins	Ghosts 'n Goblins	(?i)Ghosts.n Goblins|Ghouls.{0,2}n Ghosts	-	-	-
+ninja-gaiden	Ninja Gaiden	^Ninja Gaiden	-	-	-
+bubble-bobble	Bubble Bobble	Bubble Bobble|Rainbow Islands	-	-	-
+golden-axe	Golden Axe	^Golden Axe	-	-	-
+mario	Mario	\bMario\b	-	-	-
+mortal-kombat	Mortal Kombat	Mortal Kombat	-	-	-
+star-soldier	Star Soldier	Star Soldier|Soldier Blade	-	-	-
+art-of-fighting	Art of Fighting	^Art of Fighting	-	-	-
+streets-of-rage	Streets of Rage	^Streets of Rage	-	-	-
+marvel	Marvel and X-Men	^(X-Men\b|Marvel vs\. |Marvel Super Heroes)|^The Punisher$|^Captain America\b	-	-	-
+splatterhouse	Splatterhouse	^Splatterhouse	-	-	-
+lode-runner	Lode Runner	^Lode Runner	-	-	-
+space-invaders	Space Invaders	^Space Invaders	-	-	-
+star-wars	Star Wars	Star Wars	-	-	-
+thunder-force	Thunder Force	^Thunder Force|^Lightening Force	-	-	-
+fantasy-zone	Fantasy Zone	Fantasy Zone	-	-	-
+sengoku	Sengoku	^Sengoku( [0-9]+)?$	-	-	-
+gauntlet	Gauntlet	^Gauntlet( (II|III|IV))?$	-	-	-
+rolling-thunder	Rolling Thunder	^Rolling Thunder	-	-	-
+phantasy-star	Phantasy Star	^Phantasy Star	-	-	-
+road-rash	Road Rash	^Road Rash	-	-	-
+micro-machines	Micro Machines	^Micro Machines	-	-	-
+crash-bandicoot	Crash Bandicoot	^Crash (Bandicoot|Team Racing|Bash)	-	-	-
+dragon-ball	Dragon Ball Z	^Dragon Ball	-	-	-
+dig-dug	Dig Dug	^Dig Dug	-	-	-
+punch-out	Punch-Out!!	Punch-Out!!	-	-	-
+king-of-the-monsters	King of the Monsters	^King of the Monsters	-	-	-

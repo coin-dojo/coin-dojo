@@ -1,0 +1,329 @@
+# retroarch122 (#63): RetroArch 1.22.2 (all systems) + GLES N64 core + N64 cfg/remap/options.
+# Order: guard (no emulator running) -> local artifacts match their pins -> copy -> cabinet files match
+# their pins -> config. Every overwritten file is backed up next to itself (<file>.<ts>~).
+# Revert: restore that backup. launch.py (role launcher, #62) names these files; roll it back with
+# make launch-rollback (it rejects Debian's /usr/bin/retroarch 1.20: every system hangs there, #49).
+
+# --- guard -------------------------------------------------------------------------------------
+# pgrep -x matches the process NAME (not the command line), so `cat retroarch.cfg` or this play never
+# trips it. rc 0 = running, 1 = none, >1 = pgrep error.
+- name: Check that no emulator (RetroArch, flycast) is running
+  ansible.builtin.command:
+    cmd: pgrep -a -x "{{ retroarch122_guard_procs }}"
+  register: retroarch122_running
+  changed_when: false
+  failed_when: retroarch122_running.rc > 1
+  check_mode: false
+
+- name: Refuse to touch emulator files while a game is running
+  ansible.builtin.assert:
+    that: retroarch122_running.rc == 1
+    fail_msg: "A game is running ({{ retroarch122_running.stdout_lines | join(', ') }}): quit it (Select+Start), then re-run."
+    quiet: true
+
+# --- artifacts (local build -> cabinet, sha256-pinned) -----------------------------------------
+- name: Look for the local build outputs
+  ansible.builtin.stat:
+    path: "{{ item.src }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: retroarch122_local
+  loop: "{{ retroarch122_artifacts }}"
+  loop_control:
+    label: "{{ item.src | basename }}"
+
+- name: Refuse a local build that does not match its pin
+  ansible.builtin.assert:
+    that: item.stat.checksum == item.item.sha256
+    fail_msg: >-
+      {{ item.item.src }} has sha256 {{ item.stat.checksum }}, pinned {{ item.item.sha256 }}.
+      A different build: prove it on the cabinet, then bump the pin in retroarch122_artifacts.
+    quiet: true
+  when: item.stat.exists and not (coin_dojo_image | default(false) | bool and item.item.image_unpinned | default(false))
+  loop: "{{ retroarch122_local.results }}"
+  loop_control:
+    label: "{{ item.item.src | basename }}"
+
+- name: Install dirs exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0775"
+  become: true
+  loop: ["{{ retroarch122_dir }}", "{{ retroarch122_core_dir }}"]
+
+- name: Copy the artifacts (from the local build, never from git)
+  ansible.builtin.copy:
+    src: "{{ item.item.src }}"
+    dest: "{{ item.item.dest }}"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "{{ item.item.mode }}"
+    backup: true
+  become: true
+  register: retroarch122_copied
+  when: item.stat.exists
+  loop: "{{ retroarch122_local.results }}"
+  loop_control:
+    label: "{{ item.item.dest }}"
+
+- name: Warn about artifacts with no local build
+  ansible.builtin.debug:
+    msg: "WARN {{ item.item.src }} not found; not copied (build it: build/retroarch, build/n64). The cabinet copy must already match the pin."
+  when: not item.stat.exists
+  loop: "{{ retroarch122_local.results }}"
+  loop_control:
+    label: "{{ item.item.src | basename }}"
+
+- name: Read the cabinet's artifacts
+  ansible.builtin.stat:
+    path: "{{ item.dest }}"
+    checksum_algorithm: sha256
+  register: retroarch122_remote
+  loop: "{{ retroarch122_artifacts }}"
+  loop_control:
+    label: "{{ item.dest }}"
+
+# In check mode a copy that WOULD happen has not happened: skip those (the local pin check covered them).
+- name: Assert every artifact on the cabinet exists and matches its pin
+  ansible.builtin.assert:
+    that:
+      - item.0.stat.exists
+      - item.0.stat.checksum == item.0.item.sha256
+    fail_msg: >-
+      {{ item.0.item.dest }}: {{ 'missing' if not item.0.stat.exists else 'sha256 ' ~ item.0.stat.checksum }},
+      pinned {{ item.0.item.sha256 }}. Put the pinned build in {{ item.0.item.src }} and re-run.
+    quiet: true
+  when: not (ansible_check_mode and (item.1.changed | default(false)))
+        and not (coin_dojo_image | default(false) | bool and item.0.item.image_unpinned | default(false))
+  loop: "{{ retroarch122_remote.results | zip(retroarch122_copied.results) | list }}"
+  loop_control:
+    label: "{{ item.0.item.dest }}"
+
+# --- RetroArch config --------------------------------------------------------------------------
+- name: Main retroarch.cfg keys (one lineinfile per key)
+  ansible.builtin.lineinfile:
+    path: "{{ retroarch122_cfg_dir }}/retroarch.cfg"
+    regexp: '^{{ item.key | regex_escape }}\s*='
+    line: '{{ item.key }} = "{{ item.value }}"'
+    create: false
+  become: true
+  loop: "{{ retroarch122_cfg_keys }}"
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+
+# --- RetroAchievements (#45) ------------------------------------------------------------------
+# Off (the shared default): only cheevos_enable=false is written. On: hardcore, the user name when set, and the token
+# when bin/deploy found one. The token line never shows in the output (no_log), and nothing here reads it from config.
+# #171 the cabinet wins: what the SETTINGS app set (state file) overrides on/off + hardcore; its login skips user + token.
+# #197 the file is the cabinet user's: read it as that user (a symlink cannot make root read for it), never
+# logged, and parsed by the one shared filter (ansible/filter_plugins/hk_settings_state.py).
+- name: SETTINGS app state (read as the cabinet user, never logged; missing is fine)
+  ansible.builtin.slurp:
+    src: "{{ retroarch122_settings_state }}"
+  register: retroarch122_settings_state_file
+  failed_when: false
+  become: true
+  become_user: "{{ cabinet_user }}"
+  no_log: true
+
+- name: SETTINGS app state parsed (real JSON booleans only; anything else is not set, the hk_* default stays)
+  ansible.builtin.set_fact:
+    retroarch122_settings_app: "{{ retroarch122_settings_state_file | hk_settings_state }}"
+
+- name: RetroAchievements on/off from the SETTINGS app when it set one
+  ansible.builtin.set_fact:
+    retroarch122_cheevos_enable: "{{ retroarch122_settings_app.cheevos_enable }}"
+  when: "'cheevos_enable' in retroarch122_settings_app"
+
+- name: RetroAchievements hardcore from the SETTINGS app when it set one
+  ansible.builtin.set_fact:
+    retroarch122_cheevos_hardcore: "{{ retroarch122_settings_app.cheevos_hardcore }}"
+  when: "'cheevos_hardcore' in retroarch122_settings_app"
+
+- name: RetroAchievements login owned by the SETTINGS app when it logged in or out
+  ansible.builtin.set_fact:
+    retroarch122_cheevos_app_login: true
+  when: "'cheevos_login' in retroarch122_settings_app"
+
+- name: RetroAchievements keys in retroarch.cfg (on/off, hardcore, user)
+  ansible.builtin.lineinfile:
+    path: "{{ retroarch122_cfg_dir }}/retroarch.cfg"
+    regexp: '^{{ item.key | regex_escape }}\s*='
+    line: '{{ item.key }} = "{{ item.value }}"'
+    create: false
+  become: true
+  loop: >-
+    {{ [{'key': 'cheevos_enable', 'value': retroarch122_cheevos_enable | bool | lower}]
+       + ([{'key': 'cheevos_hardcore_mode_enable', 'value': retroarch122_cheevos_hardcore | bool | lower}]
+          if retroarch122_cheevos_enable | bool else [])
+       + ([{'key': 'cheevos_username', 'value': retroarch122_cheevos_user}]
+          if retroarch122_cheevos_enable | bool and retroarch122_cheevos_user | length > 0
+             and not retroarch122_cheevos_app_login | bool else []) }}
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+
+- name: RetroAchievements login token in retroarch.cfg (from the Keychain via bin/deploy; never logged)
+  ansible.builtin.lineinfile:
+    path: "{{ retroarch122_cfg_dir }}/retroarch.cfg"
+    regexp: '^cheevos_token\s*='
+    line: 'cheevos_token = "{{ cheevos_token }}"'
+    create: false
+  become: true
+  no_log: true
+  when: >-
+    retroarch122_cheevos_enable | bool and (cheevos_token | default('')) | length > 0
+    and not retroarch122_cheevos_app_login | bool
+
+- name: Per-core hardcore exceptions may not touch a whole-file core override
+  ansible.builtin.assert:
+    that: retroarch122_cheevos_hardcore_by_core | dict2items | map(attribute='key') | intersect(retroarch122_whole_overrides) | list | length == 0
+    fail_msg: "hk_cheevos_hardcore_by_core names {{ retroarch122_whole_overrides }}: that core's override is copied whole by this role"
+    quiet: true
+
+- name: Per-core hardcore exception dirs exist
+  ansible.builtin.file:
+    path: "{{ retroarch122_cfg_dir }}/config/{{ item.key }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+  loop: "{{ retroarch122_cheevos_hardcore_by_core | dict2items }}"
+  when: retroarch122_cheevos_enable | bool
+
+- name: Per-core hardcore exceptions (core override cfg)
+  ansible.builtin.lineinfile:
+    path: "{{ retroarch122_cfg_dir }}/config/{{ item.key }}/{{ item.key }}.cfg"
+    regexp: '^cheevos_hardcore_mode_enable\s*='
+    line: 'cheevos_hardcore_mode_enable = "{{ item.value | bool | lower }}"'
+    create: true
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+  become: true
+  loop: "{{ retroarch122_cheevos_hardcore_by_core | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}: hardcore={{ item.value | bool | lower }}"
+  when: retroarch122_cheevos_enable | bool
+
+# --- N64 ---------------------------------------------------------------------------------------
+- name: N64 config dirs exist
+  ansible.builtin.file:
+    path: "{{ retroarch122_cfg_dir }}/{{ item.dest | dirname }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "{{ item.dir_mode }}"
+  become: true
+  loop: "{{ retroarch122_n64_files }}"
+  loop_control:
+    label: "{{ item.dest | dirname }}"
+
+- name: N64 core override + remap (whole files)
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ retroarch122_cfg_dir }}/{{ item.dest }}"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "{{ item.mode }}"
+    backup: true
+  become: true
+  loop: "{{ retroarch122_n64_files }}"
+  loop_control:
+    label: "{{ item.dest }}"
+
+- name: N64 core options (one lineinfile per key)
+  ansible.builtin.lineinfile:
+    path: "{{ retroarch122_cfg_dir }}/config/Mupen64Plus-Next/Mupen64Plus-Next.opt"
+    regexp: '^{{ item.key | regex_escape }}\s*='
+    line: '{{ item.key }} = "{{ item.value }}"'
+    create: true
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+  become: true
+  loop: "{{ retroarch122_n64_opt_keys }}"
+  loop_control:
+    label: "{{ item.key }}={{ item.value }}"
+
+# --- CRT shader (#102): pinned files + auto presets ----------------------------------------------
+# global.glslp -> the CRT preset; <core>/<core>.glslp -> pass-through for the off list. Presets only
+# #reference the shader files (relative to the preset), so every shader file lives once.
+- name: Shader dirs exist
+  register: retroarch122_shader_dirs
+  ansible.builtin.file:
+    path: "{{ retroarch122_shader_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+  become: true
+  loop: "{{ retroarch122_shader_files | map(attribute='path') | map('dirname') | select | unique | list }}"
+  when: retroarch122_crt_enabled | bool
+
+- name: Shader files (pinned commit, sha256 checked)
+  ansible.builtin.get_url:
+    url: "{{ retroarch122_shader_base_url }}/{{ item.path }}"
+    dest: "{{ retroarch122_shader_dir }}/{{ item.path }}"
+    checksum: "sha256:{{ item.sha256 }}"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0664"
+    backup: true
+  become: true
+  # check mode on a bare box: the dirs above only WOULD exist, so there is nowhere to download to yet
+  when: retroarch122_crt_enabled | bool and not (ansible_check_mode and retroarch122_shader_dirs is changed)
+  loop: "{{ retroarch122_shader_files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Pass-through preset (stock.glslp)
+  ansible.builtin.copy:
+    content: "{{ retroarch122_shader_stock_content }}"
+    dest: "{{ retroarch122_shader_dir }}/{{ retroarch122_shader_stock_preset }}"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0664"
+    backup: true
+  become: true
+  when: retroarch122_crt_enabled | bool
+
+- name: Auto-preset dirs exist (config/ and one per off-list core)
+  ansible.builtin.file:
+    path: "{{ retroarch122_cfg_dir }}/config/{{ item }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+  become: true
+  when: retroarch122_crt_enabled | bool
+  loop: "{{ [''] + retroarch122_crt_off_cores }}"
+  loop_control:
+    label: "config/{{ item }}"
+
+- name: Global auto preset = CRT (config/global.glslp)
+  ansible.builtin.copy:
+    content: |
+      #reference "../shaders/shaders_glsl/{{ retroarch122_crt_preset }}"
+    dest: "{{ retroarch122_cfg_dir }}/config/global.glslp"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0664"
+    backup: true
+  become: true
+  when: retroarch122_crt_enabled | bool
+
+- name: Core auto presets = pass-through for the off list (config/<core>/<core>.glslp)
+  ansible.builtin.copy:
+    content: |
+      #reference "../../shaders/shaders_glsl/{{ retroarch122_shader_stock_preset }}"
+    dest: "{{ retroarch122_cfg_dir }}/config/{{ item }}/{{ item }}.glslp"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0664"
+    backup: true
+  become: true
+  when: retroarch122_crt_enabled | bool
+  loop: "{{ retroarch122_crt_off_cores }}"

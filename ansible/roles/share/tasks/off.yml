@@ -1,0 +1,38 @@
+# share, hk_share_enable: false. Stops and disables what tasks/on.yml set up; the packages and smb.conf stay (turning
+# the lever on again re-renders it). On a cabinet that never had the folder every step finds nothing and changes nothing.
+- name: Is Samba installed
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/smbd.service
+  register: share_smbd_unit
+
+- name: Smbd stopped and disabled
+  ansible.builtin.systemd:
+    name: smbd.service
+    enabled: false
+    state: "{{ omit if coin_dojo_image | default(false) | bool else 'stopped' }}"
+  become: true
+  when: share_smbd_unit.stat.exists
+
+- name: Which login sync units exist
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ item }}"
+  loop: "{{ share_units }}"
+  register: share_unit_files
+
+- name: Login sync units stopped and disabled
+  ansible.builtin.systemd:
+    name: "{{ item.item }}"
+    enabled: false
+    state: "{{ omit if coin_dojo_image | default(false) | bool else 'stopped' }}"
+  loop: "{{ share_unit_files.results | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+  become: true
+
+- name: No mDNS entry, dispatcher, sync units or sync script
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ [share_avahi_service, share_nm_dispatcher, share_sync, share_smbd_dropin, share_state]
+            + (share_units | map('regex_replace', '^', '/etc/systemd/system/') | list) }}"
+  become: true

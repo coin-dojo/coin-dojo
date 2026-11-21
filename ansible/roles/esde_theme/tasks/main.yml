@@ -1,0 +1,203 @@
+# esde_theme (#89): replaces the hand-run theme copy of deploy1/deploy2-apply.sh.
+#   control node: stage the named files + _inc dirs, lay personal/themes over them (not in community),
+#                 check every staged .xml parses (pre-write gate), tar it
+#   cabinet:      unpack into a temp dir, rsync --dry-run lists what differs (checksums), back those
+#                 files up, rsync (no --delete: files the repo does not name stay), remove retired files
+# A changed file notifies `restart es-de` (once, at the end). Check mode = the same listing, no write.
+
+- name: Theme deploy
+  block:
+    - name: Control-node staging dir
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: -esde-theme
+      delegate_to: localhost
+      check_mode: false
+      changed_when: false   # scratch only: an idempotent run shows changed=0
+      register: esde_theme_lstage
+
+    - name: Stage the named theme files and _inc dirs (never the whole folder), then the personal overlay
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          S={{ (esde_theme_lstage.path ~ '/theme') | quote }}
+          mkdir -p "$S"
+          cd {{ esde_theme_src | quote }}
+          {% for f in esde_theme_files %}
+          mkdir -p "$S/$(dirname {{ f | quote }})"; cp {{ f | quote }} "$S/"{{ f | quote }}
+          {% endfor %}
+          {% for d in esde_theme_dirs %}
+          mkdir -p "$S/"{{ d | quote }}; cp -R {{ d | quote }}/. "$S/"{{ d | quote }}/
+          {% endfor %}
+          mkdir -p "$S/_inc/art/backdrops"; cp _inc/art/backdrops/default.png "$S/_inc/art/backdrops/"   # the night art (#263), replaced by any art below
+          {% if esde_theme_eye_glow.enabled %}
+          cp _inc/art/backdrops/eye-glow.png _inc/art/backdrops/eye-glow.json _inc/art/backdrops/eye-glow.xml "$S/_inc/art/backdrops/"
+          {% endif %}
+          {% if coin_dojo_edition != 'community' and esde_theme_personal | bool %}
+          if [ -d {{ esde_theme_overlay | quote }} ]; then cp -R {{ esde_theme_overlay | quote }}/. "$S/"; echo overlay; fi
+          {% endif %}
+          {% if esde_theme_art_dir %}
+          A={{ (esde_theme_art_dir if esde_theme_art_dir.startswith('/') else hk_repo_root ~ '/' ~ esde_theme_art_dir) | quote }}
+          if [ -d "$A/backdrops" ]; then cp -R "$A/backdrops/." "$S/_inc/art/backdrops/"; echo art; fi
+          if [ -d "$A/backdrops" ] && [ ! -f "$A/backdrops/eye-glow.xml" ]; then rm -f "$S"/_inc/art/backdrops/eye-glow.*; fi   # own art without a glow: the night art's glow must not be drawn on it (#263)
+          {% endif %}
+          {% if not esde_theme_eye_glow.enabled %}
+          rm -f "$S"/_inc/art/backdrops/eye-glow.*
+          {% endif %}
+          {% if not esde_theme_hotkey_strip | bool %}
+          python3 -I -c "import re, sys; p = sys.argv[1]; t = open(p).read(); open(p, 'w').write(re.sub(r'[ \t]*<image name=\"controlsHint\">.*?</image>\n', '', t, flags=re.S))" "$S/theme.xml"
+          {% endif %}
+          {% if not esde_theme_trophies_hint | bool %}
+          python3 -I {{ (role_path ~ '/files/strip_trophies_hint.py') | quote }} "$S/theme.xml"
+          {% endif %}
+          {% if not esde_theme_rev_stamp | bool %}
+          sed "s|<text>REV @COIN_DOJO_VERSION@</text>|<text></text>|" "$S/theme.xml" > "$S/theme.xml.new" && mv "$S/theme.xml.new" "$S/theme.xml"
+          {% endif %}
+          V={{ coin_dojo_version | quote }}
+          case "$V" in *[!A-Za-z0-9.+-]*|'') echo "bad coin_dojo_version: $V" >&2; exit 1;; esac
+          sed "s/@COIN_DOJO_VERSION@/$V/" "$S/theme.xml" > "$S/theme.xml.new" && mv "$S/theme.xml.new" "$S/theme.xml"
+          if grep -q '@COIN_DOJO_VERSION@' "$S/theme.xml"; then echo "version stamp not filled" >&2; exit 1; fi
+          find "$S" -type f | wc -l
+      delegate_to: localhost
+      check_mode: false
+      changed_when: false
+      register: esde_theme_staged
+
+    - name: Pre-write gate - every staged theme .xml parses
+      ansible.builtin.command:
+        cmd: >-
+          python3 -I -c "import sys, glob, xml.dom.minidom as m;
+          fs = glob.glob(sys.argv[1] + '/**/*.xml', recursive=True);
+          [m.parse(f) for f in fs]; print('xml ok: %d file(s)' % len(fs))"
+          {{ esde_theme_lstage.path }}/theme
+      delegate_to: localhost
+      check_mode: false
+      changed_when: false
+
+    - name: Say what is staged
+      ansible.builtin.debug:
+        msg: "theme staged: {{ esde_theme_staged.stdout_lines | last }} file(s); personal overlay: {{ 'yes' if 'overlay' in esde_theme_staged.stdout_lines else 'no (EDITION=' ~ coin_dojo_edition ~ ')' }}"
+
+    - name: Pack the staged theme
+      ansible.builtin.command:
+        cmd: "tar -C {{ esde_theme_lstage.path }} -cf {{ esde_theme_lstage.path }}/theme.tar theme"
+      delegate_to: localhost
+      check_mode: false
+      changed_when: false
+
+    - name: Cabinet staging dir
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: -esde-theme
+      check_mode: false
+      changed_when: false   # scratch only
+      register: esde_theme_rstage
+
+    - name: Unpack the staged theme on the cabinet (temp dir only)
+      ansible.builtin.unarchive:
+        src: "{{ esde_theme_lstage.path }}/theme.tar"
+        dest: "{{ esde_theme_rstage.path }}"
+      check_mode: false
+      changed_when: false
+
+    # #122: the REV stamp (git describe) alone must not make the sync "changed" (and restart ES-DE).
+    - name: Keep the live REV stamp when it is the only difference
+      ansible.builtin.script:
+        cmd: "{{ role_path }}/files/keep_rev.sh {{ (esde_theme_rstage.path ~ '/theme/theme.xml') | quote }} {{ (esde_theme_dir ~ '/theme.xml') | quote }}"
+        executable: /bin/sh
+      check_mode: false
+      changed_when: false
+      register: esde_theme_rev
+
+    # #244: an image build installs the theme for the first time (a cabinet must already have it: no surprise installs).
+    - name: The theme dir of a new image
+      ansible.builtin.file:
+        path: "{{ esde_theme_dir }}"
+        state: directory
+        mode: "0755"
+      when: coin_dojo_image | default(false) | bool
+
+    - name: The live theme dir exists
+      ansible.builtin.stat:
+        path: "{{ esde_theme_dir }}/theme.xml"
+      register: esde_theme_live
+      failed_when: not esde_theme_live.stat.exists and not coin_dojo_image | default(false) | bool
+
+    - name: List the theme files that differ (rsync --dry-run, checksums)
+      ansible.builtin.command:
+        cmd: "rsync -rc --dry-run --out-format=%n {{ esde_theme_rstage.path }}/theme/ {{ esde_theme_dir }}/"
+      check_mode: false
+      changed_when: false
+      register: esde_theme_plan
+
+    - name: Theme files that would change
+      ansible.builtin.debug:
+        msg: "{{ esde_theme_plan.stdout_lines | reject('search', '/$') | list }}"
+      when: esde_theme_plan.stdout_lines | reject('search', '/$') | list | length > 0
+
+    - name: Which retired theme files are still on the cabinet
+      ansible.builtin.stat:
+        path: "{{ esde_theme_dir }}/{{ item }}"
+      loop: "{{ esde_theme_gone }}"
+      register: esde_theme_absent_stat
+
+    - name: Which retired names the staged theme (own art folder) provides again
+      ansible.builtin.stat:
+        path: "{{ esde_theme_rstage.path }}/theme/{{ item }}"
+      loop: "{{ esde_theme_gone }}"
+      register: esde_theme_restaged
+
+    - name: Back up the theme files about to change or go
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          B={{ (esde_backup_root ~ '/' ~ esde_stamp ~ '-theme/theme') | quote }}
+          mkdir -p "$B"; cd {{ esde_theme_dir | quote }}
+          for f in {{ esde_theme_backup_list | map('quote') | join(' ') }}; do
+            if [ -f "$f" ]; then cp -a --parents "$f" "$B/"; fi
+          done
+          echo "backup $B"
+      when: not ansible_check_mode and (esde_theme_backup_list | length > 0)
+      vars:
+        esde_theme_backup_list: "{{ (esde_theme_plan.stdout_lines | reject('search', '/$') | list) + (esde_theme_absent_stat.results | selectattr('stat.exists') | map(attribute='item') | list) }}"
+      changed_when: true
+
+    - name: Sync the theme (no --delete; names only from the staged set)
+      ansible.builtin.command:
+        cmd: "rsync -rc {{ '--dry-run' if ansible_check_mode else '' }} --out-format=%n {{ esde_theme_rstage.path }}/theme/ {{ esde_theme_dir }}/"
+      check_mode: false
+      register: esde_theme_sync
+      changed_when: esde_theme_sync.stdout_lines | reject('search', '/$') | list | length > 0
+      notify: restart es-de
+
+    - name: Remove retired theme files
+      ansible.builtin.file:
+        path: "{{ esde_theme_dir }}/{{ item }}"
+        state: absent
+      loop: "{{ esde_theme_gone }}"
+      when: item not in (esde_theme_restaged.results | selectattr('stat.exists') | map(attribute='item') | list)
+      notify: restart es-de
+
+    - name: The live theme.xml parses
+      ansible.builtin.command:
+        cmd: "{{ esde_python }} -I -c \"import sys, xml.dom.minidom as m; m.parse(sys.argv[1]); print('theme.xml ok')\" {{ esde_theme_dir }}/theme.xml"
+      check_mode: false
+      changed_when: false
+
+  always:
+    - name: Remove the cabinet staging dir
+      ansible.builtin.file:
+        path: "{{ esde_theme_rstage.path }}"
+        state: absent
+      check_mode: false
+      changed_when: false
+      when: esde_theme_rstage.path is defined
+
+    - name: Remove the control-node staging dir
+      ansible.builtin.file:
+        path: "{{ esde_theme_lstage.path }}"
+        state: absent
+      delegate_to: localhost
+      check_mode: false
+      changed_when: false
+      when: esde_theme_lstage.path is defined

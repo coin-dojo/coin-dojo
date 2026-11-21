@@ -1,0 +1,47 @@
+# coin-dojo-vm (#82): the cabinet's software stack on the throwaway Debian 13 VM (vm). Imported at
+# the end of site.yml; hosts: vm only, so `--limit coin-dojo` never reaches it and
+# `--limit coin-dojo-vm` reaches nothing else (the cabinet play targets `pios`).
+#
+# Roles: vm_base (VM-only: packages, ES-DE, base files), then the cabinet roles that make sense off
+# the Pi. Skipped, Pi-only: dreamcast (Pi flycast build + GLES on v3d; Dreamcast BIOS never in a VM),
+# power (GPIO power button + its overlay). Switched by inventory/vm.yml vars: cabinet_tweaks (no
+# config.txt kernel line, zram via systemd-zram-generator, only the nes core pin). vm/README.md.
+- name: Coin Dojo VM (never the cabinet)
+  hosts: vm
+  gather_facts: true
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Read the device-tree model (exists on a Raspberry Pi)
+      ansible.builtin.slurp:
+        src: /proc/device-tree/model
+      register: vm_dt_model
+      failed_when: false
+      tags: [always]
+
+    - name: This is coin-dojo-vm, not the cabinet
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'coin-dojo-vm'
+          - ansible_hostname == 'coin-dojo-vm'
+          - "'pios' not in group_names and 'arcade' not in group_names"
+          - ansible_host == hk_vm_host
+          - "'Raspberry Pi' not in (vm_dt_model.content | default('') | b64decode)"
+        fail_msg: >-
+          REFUSED: {{ inventory_hostname }} (hostname {{ ansible_hostname }}, {{ ansible_default_ipv4.address | default('?') }},
+          groups {{ group_names }}) does not look like coin-dojo-vm. The VM play never runs on the cabinet.
+        quiet: true
+      tags: [always]
+  roles:
+    - { role: vm_base, tags: [vm_base] }
+    # esde_common owns the `restart es-de` handler that cabinet_tweaks notifies (#106: without it the play aborts).
+    # It is also the game guard + backup stamp; it writes nothing else. Vars: group_vars/esde.yml.
+    - { role: esde_common, tags: [esde, esde_theme, collections, gamelists, esde_verify, cabinet_tweaks, tweaks] }
+    - { role: cabinet_tweaks, tags: [cabinet_tweaks, tweaks] }
+    - { role: retroarch122, tags: [retroarch122, n64] }
+    - { role: launcher, tags: [launcher] }   # #62 launch.py, as on the cabinet (vm-smoke launches through it)
+    - { role: fightcade, tags: [fightcade] }   # #208 Fightcade mode install (no GPU in the VM: install + prefix + launcher checks)
+    - { role: journald, tags: [journald] }
+    - { role: sshd_keyonly, tags: [sshd_keyonly] }
+    - { role: settings, tags: [settings] }   # #34 SETTINGS app: fake nmcli + standalone carousel entry (inventory/vm.yml)
+    - { role: share, tags: [share] }         # #266 network folder (smbd on lo; no NetworkManager: no dispatcher)
+    - { role: session, tags: [session] }     # #209 session loop (inert profile line; hk-session start /usr/local/bin/coin-dojo-session)

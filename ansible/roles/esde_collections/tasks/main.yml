@@ -1,0 +1,420 @@
+# esde_collections (#89): replaces deploy1/deploy2-apply.sh (nested --apply, validator gate, virtual
+# gamelists copy, custom_systems, /data/media/<virtual> links, gamelist drift check).
+#
+#   1. inputs exist on the cabinet; optional workspace gamelists pass the drift check (md5, laptop side)
+#   2. BUILD into a cabinet temp dir, never in place: the live real gamelists (+ the workspace edits),
+#      the live virtual gamelists as the previous state (favorite/playcount/lastplayed carry over),
+#      `collgen.py nested --apply --out TMP` with the repo's tools
+#   3. PRE-WRITE GATE: validate_nested.py on TMP; FAIL = abort, nothing on the cabinet is touched
+#   4. list what differs, back it up into <esde_backup_root>/<stamp>-collections/, then write:
+#      tools, real gamelists, nested_out (rsync -c --delete per generated subdir), es_systems.xml,
+#      virtual gamelists, /data/nested + /data/media/<virtual> links
+#   Anything ES-DE reads that changed notifies `restart es-de` (once, at the end; esde_verify checks after).
+# Check mode runs steps 1-3 for real (in the temp dir only) and shows step 4 as a dry run.
+
+# #244 image build: no inputs yet; the starter carousel instead (tasks/image.yml), then this role ends.
+- name: Image build - the starter carousel
+  ansible.builtin.include_tasks: image.yml
+  when: coin_dojo_image | default(false) | bool
+
+- name: Image build - nothing else to do here
+  ansible.builtin.meta: end_role
+  when: coin_dojo_image | default(false) | bool
+
+- name: Inputs on the cabinet exist (picks, dat, folder art, ROM + media roots, gamelists)
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ coin_dojo_dir }}"
+    - "{{ esde_collections_picks }}"
+    - "{{ esde_collections_dat }}"
+    - "{{ esde_collections_folder_art }}"
+    - "{{ esde_rom_root }}"
+    - "{{ esde_media_root }}"
+    - "{{ esde_gamelists }}"
+    - "{{ esde_custom_systems }}"
+  register: esde_coll_inputs
+
+- name: Stop when an input is missing
+  ansible.builtin.assert:
+    that: esde_coll_inputs.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: "missing on the cabinet: {{ esde_coll_inputs.results | rejectattr('stat.exists') | map(attribute='item') | list }}"
+    quiet: true
+
+# --- 1. Edited real-system gamelists from the laptop workspace: drift check --------------------------
+- name: Workspace gamelists
+  when: esde_gamelists_workspace | length > 0
+  block:
+    - name: Md5 of the cabinet's real gamelists now
+      ansible.builtin.shell:
+        cmd: "cd {{ esde_gamelists | quote }} && md5sum */gamelist.xml"
+      check_mode: false
+      changed_when: false
+      register: esde_live_md5
+
+    - name: Drift check - copy only files the cabinet did not change since the pull
+      ansible.builtin.command:
+        argv: ["python3", "-I", "{{ role_path }}/files/gamelist_drift.py", "--workspace", "{{ esde_gamelists_workspace }}", "--live", "-"]
+        stdin: "{{ esde_live_md5.stdout }}"
+      delegate_to: localhost
+      environment: {HK_VIRTUAL_SYSTEMS: "{{ esde_virtual_systems | to_json }}"}     # hk_virtual_systems (#94)
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      register: esde_drift
+
+    - name: ABORT on drift (nothing written; pull again with make pull-gamelists and redo the edit)
+      ansible.builtin.assert:
+        that: esde_drift.rc == 0
+        fail_msg: "{{ esde_drift.stdout_lines | select('match', '^FAIL') | list }}"
+        quiet: true
+
+    - name: Workspace gamelists to copy
+      ansible.builtin.set_fact:
+        esde_gl_copy: "{{ (esde_drift.stdout_lines[0] | from_json).changed + (esde_drift.stdout_lines[0] | from_json).new }}"
+
+- name: Gamelists to copy from the workspace
+  ansible.builtin.debug:
+    msg: "{{ esde_gl_copy | default([]) if esde_gamelists_workspace | length > 0 else 'none (no workspace; W= not set)' }}"
+
+# --- 2. + 3. Build in a temp dir, validate, then write ----------------------------------------------------
+- name: Collections deploy
+  block:
+    - name: Cabinet build dir
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: -esde-nested
+      check_mode: false
+      changed_when: false   # scratch only: an idempotent run shows changed=0
+      register: esde_coll_t
+
+    - name: Tool dir in the build dir
+      ansible.builtin.file:
+        path: "{{ esde_coll_t.path }}/tools"
+        state: directory
+        mode: "0755"
+      check_mode: false
+      changed_when: false
+
+    - name: The repo's tools into the build dir (the build never runs the cabinet's older copies; the maintainer's lists from personal/ first)
+      ansible.builtin.copy:
+        src: "{{ (esde_collections_personal ~ '/' ~ item) if (coin_dojo_edition != 'community' and (esde_collections_personal ~ '/' ~ item) is file) else (esde_collections_src ~ '/' ~ item) }}"
+        dest: "{{ esde_coll_t.path }}/tools/{{ item }}"
+        mode: "0644"
+      loop: "{{ esde_collections_tools }}"
+      check_mode: false
+      changed_when: false
+
+    - name: The virtual-system names next to the build's tools (nested.py reads virtual_systems.json beside itself)
+      ansible.builtin.copy:
+        content: "{{ esde_virtual_systems | to_json }}\n"
+        dest: "{{ esde_coll_t.path }}/tools/virtual_systems.json"
+        mode: "0644"
+      check_mode: false
+      changed_when: false
+
+    - name: Build input = the live gamelists; the live virtual gamelists = previous state
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          T={{ esde_coll_t.path | quote }}; G={{ esde_gamelists | quote }}
+          mkdir -p "$T/gamelists" "$T/nested_out/gamelists"
+          cp -a "$G/." "$T/gamelists/"
+          for v in {{ esde_virtual_systems | map('quote') | join(' ') }}; do
+            if [ -f "$G/$v/gamelist.xml" ]; then mkdir -p "$T/nested_out/gamelists/$v"; cp -a "$G/$v/gamelist.xml" "$T/nested_out/gamelists/$v/"; fi
+          done
+      check_mode: false
+      changed_when: false
+
+    - name: Workspace gamelists over the build input
+      ansible.builtin.copy:
+        src: "{{ esde_gamelists_workspace }}/gamelists/{{ item }}/gamelist.xml"
+        dest: "{{ esde_coll_t.path }}/gamelists/{{ item }}/gamelist.xml"
+        mode: "0644"
+      loop: "{{ esde_gl_copy | default([]) }}"
+      check_mode: false
+      changed_when: false
+
+    - name: The ES-DE entry script for FIGHTCADE and QUIT TO MAIN MENU, shipped before the build so the links resolve
+      ansible.builtin.copy:
+        src: "{{ esde_collections_src }}/esde_entry.sh"
+        dest: "{{ esde_collections_entry_script }}"
+        mode: "0755"
+
+    - name: Is the entry script there (in check mode before the first deploy, no)?
+      ansible.builtin.stat:
+        path: "{{ esde_collections_entry_script }}"
+      register: esde_entry_script
+      check_mode: false
+
+    - name: Is Fightcade mode installed (its launcher)?
+      ansible.builtin.stat:
+        path: "{{ esde_collections_fightcade_bin }}"
+      register: esde_fightcade_bin
+      check_mode: false
+
+    - name: Is the SETTINGS app installed (its entry file)?
+      ansible.builtin.stat:
+        path: "{{ esde_collections_settings_entry }}"
+      register: esde_settings_entry
+      check_mode: false
+
+    - name: Is the TROPHIES page set up (its entry file)?
+      ansible.builtin.stat:
+        path: "{{ esde_collections_trophies_entry }}"
+      register: esde_trophies_entry
+      check_mode: false
+
+    - name: Build the nested main screen (collgen.py nested --apply into the build dir)
+      ansible.builtin.command:
+        argv: "{{ ['python3', 'collgen.py', 'nested',
+                   '--gamelists', esde_coll_t.path ~ '/gamelists',
+                   '--picks', esde_collections_picks, '--dat', esde_collections_dat,
+                   '--roms', esde_rom_root, '--media', esde_media_root,
+                   '--rom-root', esde_rom_root, '--nested-root', esde_nested_root,
+                   '--launcher', esde_collections_launcher,
+                   '--folder-art', esde_collections_folder_art,
+                   '--folder-text', 'folder_text.tsv', '--series', 'series.tsv',
+                   '--out', esde_coll_t.path ~ '/nested_out',
+                   '--must-play-top', esde_collections_must_play_top | string,
+                   '--must-play-genre-min', esde_collections_must_play_genre_min | string] + esde_collections_nested_args
+                  + (['--settings-entry', esde_collections_settings_entry,
+                      '--settings-command', esde_collections_settings_command] if esde_settings_entry.stat.exists else [])
+                  + (['--trophies-entry', esde_collections_trophies_entry,
+                      '--trophies-command', esde_collections_trophies_command]
+                     if esde_trophies_entry.stat.exists and esde_collections_trophies_carousel | bool else [])
+                  + (['--quit-entry', esde_collections_entry_script,
+                      '--quit-command', esde_collections_entry_command ~ ' menu'] if esde_entry_script.stat.exists else [])
+                  + (['--fightcade-entry', esde_collections_entry_script,
+                      '--fightcade-command', esde_collections_entry_command ~ ' fightcade']
+                     if esde_entry_script.stat.exists and esde_fightcade_bin.stat.exists
+                        and esde_collections_fightcade_entry | bool else [])
+                  + ['--apply'] }}"
+        chdir: "{{ esde_coll_t.path }}/tools"
+      environment: {HK_VIRTUAL_SYSTEMS: "{{ esde_virtual_systems | to_json }}"}     # hk_virtual_systems (#94)
+      check_mode: false
+      changed_when: false
+      register: esde_nested
+
+    - name: Build summary
+      ansible.builtin.debug:
+        msg: "{{ esde_nested.stdout_lines | reject('match', '^\\s+(SAME|NEW|CHANGED)\\s') | list }}"
+
+    - name: Pre-write gate - validate_nested.py on the build (BIOS-named folders/files, dead links, links vs games)
+      ansible.builtin.command:
+        argv: ["python3", "validate_nested.py", "--out", "{{ esde_coll_t.path }}/nested_out"]
+        chdir: "{{ esde_coll_t.path }}/tools"
+      environment: {HK_VIRTUAL_SYSTEMS: "{{ esde_virtual_systems | to_json }}"}     # hk_virtual_systems (#94)
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      register: esde_validate
+
+    - name: Validator result
+      ansible.builtin.debug:
+        msg: "{{ esde_validate.stdout_lines[-12:] }}"
+
+    - name: ABORT when the validator fails (nothing on the cabinet was changed)
+      ansible.builtin.assert:
+        that:
+          - esde_validate.rc == 0
+          - "'RESULT: PASS' in esde_validate.stdout_lines"
+        fail_msg: "ABORT: validate_nested.py failed on the build, nothing copied into ES-DE: {{ esde_validate.stdout_lines | select('match', '^FAIL') | list }}"
+        quiet: true
+
+    - name: Game counts the build makes per virtual system
+      ansible.builtin.script:
+        cmd: >-
+          {{ role_path }}/../esde_common/files/esde_verify.py counts
+          --es-systems {{ esde_coll_t.path }}/nested_out/custom_systems/es_systems.xml
+          --gamelists {{ esde_coll_t.path }}/nested_out/gamelists
+          --nested-dir {{ esde_coll_t.path }}/nested_out/roms_nested --json
+        executable: "{{ esde_python }}"
+      check_mode: false
+      changed_when: false
+      register: esde_built_counts
+
+    - name: Remember the built counts (esde_verify compares the cabinet with them after the restart)
+      ansible.builtin.set_fact:
+        esde_expected_counts: "{{ esde_built_counts.stdout_lines | select('match', '^\\{') | first | from_json }}"
+
+    - name: Retired FIGHTCADE out of the build (#219; its live gamelist was seeded above as previous state)
+      ansible.builtin.file:
+        path: "{{ esde_coll_t.path }}/nested_out/gamelists/fightcade"
+        state: absent
+      when: "'fightcade' not in esde_expected_counts"
+      check_mode: false
+      changed_when: false
+
+    - name: List what would change (generated dirs, es_systems.xml, gamelists, tools)
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          T={{ esde_coll_t.path | quote }}; N={{ esde_nested_out | quote }}; G={{ esde_gamelists | quote }}
+          for sub in roms_nested downloaded_media custom_systems gamelists; do
+            [ -d "$T/nested_out/$sub" ] || continue
+            rsync -rlc --delete --dry-run --itemize-changes "$T/nested_out/$sub/" "$N/$sub/" | sed "s|^|nested_out/$sub: |"
+          done
+          cmp -s "$T/nested_out/custom_systems/es_systems.xml" {{ (esde_custom_systems ~ '/es_systems.xml') | quote }} || echo "ES-DE custom_systems/es_systems.xml"
+          for v in {{ esde_expected_counts.keys() | map('quote') | join(' ') }}; do
+            cmp -s "$T/nested_out/gamelists/$v/gamelist.xml" "$G/$v/gamelist.xml" || echo "ES-DE gamelists/$v"
+          done
+          for s in {{ esde_gl_copy | default([]) | map('quote') | join(' ') }}; do echo "ES-DE gamelists/$s (workspace)"; done
+          if [ {{ ('fightcade' in esde_expected_counts) | ternary('built', 'off') }} = off ] && [ -e "$G/fightcade" ]; then echo "ES-DE gamelists/fightcade (retired, #219)"; fi
+          for f in {{ esde_collections_tools | map('quote') | join(' ') }}; do
+            cmp -s "$T/tools/$f" {{ coin_dojo_dir | quote }}/"$f" || echo "tool $f"
+          done
+      check_mode: false
+      changed_when: false
+      register: esde_coll_plan
+
+    - name: What would change
+      ansible.builtin.debug:
+        msg: "{{ (esde_coll_plan.stdout_lines | length > 40) | ternary(esde_coll_plan.stdout_lines[:40] + ['... ' ~ (esde_coll_plan.stdout_lines | length - 40) ~ ' more'], esde_coll_plan.stdout_lines) }}"
+      when: esde_coll_plan.stdout_lines | length > 0
+
+    - name: Back up everything about to change (ES-DE gamelists, custom_systems, nested_out, tools)
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          B={{ (esde_backup_root ~ '/' ~ esde_stamp ~ '-collections') | quote }}
+          mkdir -p "$B"
+          tar -C {{ esde_home | quote }} -cf "$B/gamelists.tar" gamelists
+          cp -a {{ esde_custom_systems | quote }} "$B/custom_systems"
+          if [ -d {{ esde_nested_out | quote }} ]; then tar -C {{ esde_nested_out | dirname | quote }} -cf "$B/nested_out.tar" {{ esde_nested_out | basename | quote }}; fi
+          cd {{ coin_dojo_dir | quote }}
+          tar -cf "$B/tools.tar" --ignore-failed-read {{ esde_collections_tools | map('quote') | join(' ') }} 2>/dev/null || true
+          echo "backup $B"
+      when: not ansible_check_mode and esde_coll_plan.stdout_lines | length > 0
+      changed_when: true
+
+    # --- 4. writes (check mode: dry run) ---------------------------------------------------------------
+    # The maintainer's lists from personal/ first (#190), as in the build dir
+    - name: Ship the tools (not read by ES-DE; no restart) to {{ coin_dojo_dir }}
+      ansible.builtin.copy:
+        src: "{{ (esde_collections_personal ~ '/' ~ item) if (coin_dojo_edition != 'community' and (esde_collections_personal ~ '/' ~ item) is file) else (esde_collections_src ~ '/' ~ item) }}"
+        dest: "{{ coin_dojo_dir }}/{{ item }}"
+        mode: "0644"
+      loop: "{{ esde_collections_tools }}"
+
+    - name: The virtual-system names next to the shipped tools (hk_virtual_systems; by-hand runs on the cabinet need no env)
+      ansible.builtin.copy:
+        content: "{{ esde_virtual_systems | to_json }}\n"
+        dest: "{{ coin_dojo_dir }}/virtual_systems.json"
+        mode: "0644"
+
+    - name: Edited real gamelists from the workspace into ES-DE
+      ansible.builtin.copy:
+        src: "{{ esde_coll_t.path }}/gamelists/{{ item }}/gamelist.xml"
+        dest: "{{ esde_gamelists }}/{{ item }}/gamelist.xml"
+        remote_src: true   # no mode: keep the live 0664 (a mode change would restart ES-DE for nothing)
+      diff: false
+      loop: "{{ esde_gl_copy | default([]) }}"
+      notify: restart es-de
+
+    - name: "Nested out dir exists: {{ esde_nested_out }}"
+      ansible.builtin.file:
+        path: "{{ esde_nested_out }}"
+        state: directory
+        mode: "0775"
+
+    - name: Nested_out dirs ES-DE reads (roms_nested, downloaded_media, custom_systems; rsync -c --delete)
+      ansible.builtin.shell:
+        cmd: >-
+          [ ! -d {{ (esde_coll_t.path ~ '/nested_out/' ~ item) | quote }} ] ||
+          rsync -rlc --delete {{ '--dry-run' if ansible_check_mode else '' }} --itemize-changes
+          {{ (esde_coll_t.path ~ '/nested_out/' ~ item ~ '/') | quote }} {{ (esde_nested_out ~ '/' ~ item ~ '/') | quote }}
+      loop: [roms_nested, downloaded_media, custom_systems]
+      check_mode: false
+      register: esde_coll_sync
+      changed_when: esde_coll_sync.stdout | trim | length > 0
+      notify: restart es-de
+
+    - name: Nested_out/gamelists (the build's copy; ES-DE reads its own gamelists dir, no restart)
+      ansible.builtin.command:
+        cmd: >-
+          rsync -rlc --delete {{ '--dry-run' if ansible_check_mode else '' }} --itemize-changes
+          {{ esde_coll_t.path }}/nested_out/gamelists/ {{ esde_nested_out }}/gamelists/
+      check_mode: false
+      register: esde_coll_glsync
+      changed_when: esde_coll_glsync.stdout | trim | length > 0
+
+    - name: Custom_systems/es_systems.xml (the virtual systems; loadExclusive)
+      ansible.builtin.copy:
+        src: "{{ esde_coll_t.path }}/nested_out/custom_systems/es_systems.xml"
+        dest: "{{ esde_custom_systems }}/es_systems.xml"
+        remote_src: true   # no mode: keep the live 0664 (a mode change would restart ES-DE for nothing)
+      notify: restart es-de
+
+    - name: Which virtual gamelist dirs ES-DE already has
+      ansible.builtin.stat:
+        path: "{{ esde_gamelists }}/{{ item }}"
+      loop: "{{ esde_expected_counts.keys() | list }}"
+      register: esde_vgl_dirs
+
+    - name: Virtual gamelist dirs exist
+      ansible.builtin.file:
+        path: "{{ esde_gamelists }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop: "{{ esde_expected_counts.keys() | list }}"
+      notify: restart es-de
+
+    - name: Virtual gamelists into ES-DE (no diff, thousands of lines)
+      ansible.builtin.copy:
+        src: "{{ esde_coll_t.path }}/nested_out/gamelists/{{ item }}/gamelist.xml"
+        dest: "{{ esde_gamelists }}/{{ item }}/gamelist.xml"
+        remote_src: true   # no mode: keep the live 0664 (a mode change would restart ES-DE for nothing)
+      diff: false
+      loop: "{{ esde_expected_counts.keys() | list }}"
+      # check mode: a dir that does not exist yet is already reported as a change above
+      when: not ansible_check_mode or item in (esde_vgl_dirs.results | selectattr('stat.exists') | map(attribute='item') | list)
+      notify: restart es-de
+
+    - name: Retired FIGHTCADE system out of ES-DE's gamelists (#219; backed up above, es_systems.xml no longer names it)
+      ansible.builtin.file:
+        path: "{{ esde_gamelists }}/fightcade"
+        state: absent
+      when: "'fightcade' not in esde_expected_counts"
+
+    - name: "Link nested_out/roms_nested (es_systems.xml <path> points here) to {{ esde_nested_root }}"
+      ansible.builtin.file:
+        src: "{{ esde_nested_out }}/roms_nested"
+        dest: "{{ esde_nested_root }}"
+        state: link
+        force: "{{ ansible_check_mode }}"   # check mode on a fresh box: roms_nested does not exist yet
+      notify: restart es-de
+
+    - name: Which virtual systems the build made media for
+      ansible.builtin.stat:
+        path: "{{ esde_coll_t.path }}/nested_out/downloaded_media/{{ item }}"
+      loop: "{{ esde_expected_counts.keys() | list }}"
+      register: esde_built_media
+
+    - name: Which <media>/<virtual> entries exist
+      ansible.builtin.stat:
+        path: "{{ esde_media_root }}/{{ item }}"
+        follow: false
+      loop: "{{ esde_built_media.results | selectattr('stat.exists') | map(attribute='item') | list }}"
+      register: esde_media_links
+
+    - name: Missing <media>/<virtual> links -> nested_out/downloaded_media/<virtual> (existing ones are left alone)
+      ansible.builtin.file:
+        src: "{{ esde_nested_out }}/downloaded_media/{{ item.item }}"
+        dest: "{{ esde_media_root }}/{{ item.item }}"
+        state: link
+        force: "{{ ansible_check_mode }}"
+      loop: "{{ esde_media_links.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: not item.stat.exists and not item.stat.islnk | default(false)
+      notify: restart es-de
+
+  always:
+    - name: Remove the cabinet build dir
+      ansible.builtin.file:
+        path: "{{ esde_coll_t.path }}"
+        state: absent
+      check_mode: false
+      changed_when: false
+      when: esde_coll_t.path is defined

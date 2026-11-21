@@ -1,0 +1,117 @@
+#!/bin/sh
+# {{ ansible_managed | default('Managed by Ansible') }}: role share (#266). Keeps the network folder's login in step with
+# the cabinet user's Linux password. Runs as root: at boot (coin-dojo-share-sync.service, after coindojo-firstboot),
+# on every change of /etc/shadow (coin-dojo-share-sync.path), and from the deploy/image build.
+#
+#   coin-dojo-share-sync [--default-login]   sync (both spellings do the same):
+#     1. the Samba login is the default WE set and the Linux password changed since: remove that Samba login
+#     2. the Linux password is the community default (#265: coindojo-firstboot keeps its hash in
+#        {{ share_default_mark }}) and the user has NO Samba entry: give Samba the same default. An entry of the
+#        user's own (SETTINGS > PASSWORD, #271) is never replaced.
+#     3. write {{ share_state }} (booted systems only): linux_default=yes|no, share_default=yes|no
+#        (#265 follow-up: the sudo side reads it)
+#   coin-dojo-share-sync --status   one line, read-only: LOGIN <user> or NOLOGIN <user>, + " (admin)" when admin is on
+#
+# #270: the sync holds {{ share_password_lock }} (flock) from before its first read to its exit; the SETTINGS
+# password helper holds it around its Samba-then-Linux steps, so the sync never deletes a password the helper just
+# set. A failing pdbedit is an error (exit 1, nothing changed); the marker goes only after smbpasswd -x succeeded or
+# the Samba hash is proven to be the user's own.
+#
+# Samba keeps its own password hash (NT hash); a Linux hash cannot be turned into one. So a password you set later
+# with passwd reaches the network folder only through SETTINGS > PASSWORD (#271: its helper sets both)
+set -eu
+U={{ share_user | quote }}
+MARK={{ share_default_mark | quote }}     # written by coindojo-firstboot --default-login (#265), never by us
+OURS={{ share_marker | quote }}           # line 1: the shadow hash, line 2: Samba's NT hash, when we set the default
+STATE={{ share_state | quote }}
+LOCK={{ share_password_lock | quote }}
+ADMIN_RULE={{ share_admin_rule | quote }}
+# The community image's default login password (#265). Not a secret: the docs and the cabinet's screen print it.
+DEFAULT=12345
+TAG=coin-dojo-share
+
+say(){ echo "$TAG: $*"; if command -v logger >/dev/null 2>&1; then logger -t "$TAG" -- "$*" || true; fi; }
+shadow(){ awk -F: -v u="$U" '$1 == u {print $2; exit}' /etc/shadow; }
+# The user's NT hash ('' = no entry). pdbedit failing is an ERROR (return 1), never "no entry": callers stop.
+nthash(){
+  out=$(pdbedit -L -w 2>/dev/null) || { rc=$?; say "ERROR: pdbedit failed (exit $rc): the network login is unknown, nothing changed" >&2; return 1; }
+  printf '%s\n' "$out" | awk -F: -v u="$U" '$1 == u {print $4; exit}'
+}
+lock(){
+  d=$(dirname "$LOCK")
+  [ -L "$d" ] && { say "ERROR: $d is a symlink: not syncing" >&2; exit 1; }
+  [ -d "$d" ] || mkdir -p -m 0755 "$d"
+  [ -n "$(find "$d" -maxdepth 0 -type d -user "$(id -u)" ! -perm -020 ! -perm -002 2>/dev/null)" ] \
+    || { say "ERROR: $d is not root's alone (owner or group/other write): not syncing" >&2; exit 1; }
+  [ -L "$LOCK" ] && { say "ERROR: $LOCK is a symlink: not syncing" >&2; exit 1; }
+  exec 9<>"$LOCK"
+  flock -w 60 9 || { say "ERROR: the password lock is busy (a password change is still running?): not syncing" >&2; exit 1; }
+}
+line(){ sed -n "${1}p" "$OURS" 2>/dev/null || true; }
+# #270 N3: with admin on, the SETTINGS PASSWORD page refuses (the login password is the sudo password), so the way to
+# set the network password is sudo smbpasswd; without admin there is no sudo, so it is the PASSWORD page.
+admin(){
+  [ -e "$ADMIN_RULE" ] || [ -L "$ADMIN_RULE" ] && return 0
+  awk -F: -v u="$U" '$1 == "sudo" { n = split($4, m, ","); for (i = 1; i <= n; i++) if (m[i] == u) f = 1 } END { exit !f }' /etc/group 2>/dev/null
+}
+how(){ if admin; then echo "sudo smbpasswd -a $U"; else echo "SETTINGS > PASSWORD"; fi; }
+
+state(){
+  [ -d /run/systemd/system ] || return 0          # not booted (the image chroot): nothing to tell
+  lin=no; shr=no
+  [ "$linux_default" = yes ] && lin=yes
+  nt=$(nthash) || exit 1
+  [ -f "$OURS" ] && [ -n "$(line 2)" ] && [ "$(line 2)" = "$nt" ] && shr=yes
+  mkdir -p "$(dirname "$STATE")"
+  printf 'linux_default=%s\nshare_default=%s\n' "$lin" "$shr" > "$STATE.tmp"
+  chmod 644 "$STATE.tmp"; mv -f "$STATE.tmp" "$STATE"
+}
+
+sync(){
+  lock
+  now=$(shadow)
+  linux_default=no
+  [ -n "$now" ] && [ -f "$MARK" ] && [ "$(cat "$MARK")" = "$now" ] && linux_default=yes
+  # 1. our default outlived a Linux password change: remove it (an NT hash of the user's own stays)
+  if [ -f "$OURS" ] && [ "$(line 1)" != "$now" ]; then
+    was_nt=$(line 2)
+    have=$(nthash) || exit 1
+    if [ -n "$was_nt" ] && [ "$have" = "$was_nt" ]; then
+      smbpasswd -x "$U" >/dev/null || { say "ERROR: smbpasswd -x failed: the default network login stays, retried on the next change or boot" >&2; exit 1; }
+      rm -f "$OURS"
+      say "REMOVED: the Linux password of $U changed, so the network folder's default login is gone; set its password with: $(how)"
+    else
+      rm -f "$OURS"
+      say "KEPT: the Linux password of $U changed; the network password was already your own"
+    fi
+  fi
+  # 2. Linux password is the default: Samba gets it too, but only into an empty slot
+  if [ "$linux_default" = yes ]; then
+    have=$(nthash) || exit 1
+    if [ -z "$have" ]; then
+      printf '%s\n%s\n' "$DEFAULT" "$DEFAULT" | smbpasswd -s -a "$U" >/dev/null
+      nt=$(nthash) || exit 1
+      (umask 077; mkdir -p "$(dirname "$OURS")"; printf '%s\n%s\n' "$now" "$nt" > "$OURS")
+      say "SET: network login $U = the default login (SETTINGS > PASSWORD changes both)"
+    elif [ -f "$OURS" ] && [ "$(line 2)" = "$have" ]; then
+      say "OK: network login $U has the default"
+    else
+      rm -f "$OURS"
+      say "KEEP: $U has a network password of its own; not replaced by the default"
+    fi
+  elif [ -z "$now" ]; then
+    say "SKIP: no user $U in /etc/shadow"
+  elif [ ! -f "$MARK" ]; then
+    say "SKIP: no community default login ($MARK absent)"
+  else
+    say "SKIP: the Linux password is no longer the default"
+  fi
+  state
+}
+
+case "${1:-}" in
+  --status) nt=$(nthash) || exit 1; a=; admin && a=" (admin)"
+            if [ -n "$nt" ]; then echo "LOGIN $U$a"; else echo "NOLOGIN $U$a"; fi ;;
+  ""|--default-login) sync ;;
+  *) echo "usage: $0 [--default-login|--status]" >&2; exit 2 ;;
+esac

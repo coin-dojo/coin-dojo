@@ -1,0 +1,6 @@
+# coin-dojo-vm (group `vm`, #120): ES-DE vars that differ from the cabinet (group_vars/esde.yml).
+# Nothing logs in on tty1 here: hk-session starts a headless cage session on request (vm_base), so after the
+# `restart es-de` handler kills ES-DE there is nothing that brings it back and nothing to wait for.
+esde_up_cmd: "true"
+esde_restart_settle: 1
+esde_log_settle: 1

@@ -1,0 +1,16 @@
+# journald reads its config only at start. A restart is safe: stdout streams of running services
+# survive it (fd store). The flush then moves the /run journal into /var/log/journal.
+# Image build (#244): neither runs; journald starts with the drop-in at the first boot.
+- name: restart journald
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted
+  become: true
+  notify: flush journal
+  when: not coin_dojo_image | default(false) | bool
+
+- name: flush journal
+  ansible.builtin.command: journalctl --flush
+  become: true
+  changed_when: true
+  when: not coin_dojo_image | default(false) | bool

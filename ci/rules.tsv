@@ -1,0 +1,54 @@
+# ci/rules.tsv - which CI areas a changed path needs. Read by tools/ci_select.py only (make test-changed, test-list, ci;
+# Forgejo runs the same `make ci`). Design: PLAN-103 section 9, ticket #123; semantics ported from the maintainer's other repo's path rules.
+#
+# One rule per line:   <glob><TAB><areas><TAB># <reason (required)>
+#   glob:  fnmatch on the repo-relative path, `*` also matches `/`. The FIRST matching rule wins: order matters.
+#   areas: comma-separated names from ci/areas.tsv, the alias ALL (= every area), or `-` (baseline only).
+# Baseline: `security` always runs. `docs` is added by the `*.md` rule below.
+# The last rule is `* ALL`: an unmatched path runs everything (reason=unmatched). Every tracked file must match a
+# rule BEFORE it (tools/tests/test_select.py), so a new top-level folder forces a decision here.
+# A selector error (bad rules file, unknown base ref) also runs everything: it never silently skips.
+#
+# glob	areas	# reason
+ci/*	tools,lint	# the rules and the selector: its own tests (tools/tests/test_select.py) cover them
+tools/runtests.py	ALL	# runs every test file
+tools/cilock.py	tools,lint	# the lock: tools/tests/test_cilock.py
+tools/*	tools,lint	# the tools behind make and their tests
+versions.lock	tools	# #278 generated pin list: tests/test_versions.py (an always test) checks it
+Makefile	ALL	# the entry point of every area
+mk/tests/*	tools	# the make tests
+mk/*	ALL	# shared make rules every area includes
+.github/*	docs	# FUNDING.yml (GitHub Sponsor button): docs/tests/test_customer_docs.py reads it
+.githooks/*	tools	# commit-msg hook: tools/tests/test_commitlint.py
+tests/lib/*	ALL	# hktest: every plain-python test imports it
+tests/smoke/*	smoke	# the smoke launch test
+tests/*	-	# repo-wide gates: the always list runs them with any code change
+*.md	docs	# docs: the doc tests; baseline security
+docs/*	docs	# history and reference notes
+ansible/*	ansible,lint	# roles, playbooks, role tests
+skills/collections/launch.py	collections,ansible,build,lint	# the launcher table: role cores and the image build read it (#244)
+skills/collections/*	collections,lint	# collections generator and its tests
+skills/controls/*	controls,lint	# controls helper and its tests
+skills/badges/*	theme,lint	# badge art generator
+skills/local-preview/*	preview,lint	# local previews
+skills/settings/*	settings,lint	# settings skill
+skills/build-image/*	build,lint	# image build skill
+skills/*	ALL	# any other skill: not mapped to one area
+themes/*	theme	# ES-DE theme files: theme xml and contrast tests
+personal/skills/collections/*	collections,ansible	# the maintainer's curated lists (#190): read by the collections tools and the esde_collections role
+personal/tests/smoke/*	smoke	# the maintainer's pinned smoke games (#190)
+personal/docs/*	docs	# the maintainer's game rosters (#190)
+personal/backup/*	build	# the cabinet config backup (#286): build/tests/test_backup_config.py scans every committed file
+personal/*	theme	# the maintainer's private theme overlay (absent in the community edition)
+brand/*	brand,lint	# brand tokens and specimen
+build/*	build,lint	# emulator build scripts
+vm/*	vm,lint	# test VM helpers
+config/*	ALL	# configuration core (#118): read by every area until it has its own rules
+.yamllint	lint	# lint config
+.shellcheckrc	lint	# lint config
+ruff.toml	lint	# lint config
+.gitleaks.toml	-	# security config: security always runs
+.gitignore	ALL	# changes which files every check lists
+LICENSE*	-	# license text
+NOTICE	-	# license notices
+*	ALL	# unmatched path: run everything (reason=unmatched)

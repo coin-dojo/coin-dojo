@@ -1,0 +1,69 @@
+# Roll back: launch.py.prev -> launch.py (make launch-rollback; dry run unless APPLY=1). The file being
+# replaced goes to <backup_root>/<stamp>-launch-rollback/launch.py first. launch.py.prev stays, so a
+# second rollback is a no-op and `make deploy-launch APPLY=1` re-installs the repo version.
+- name: Launch.py and launch.py.prev
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+  register: launcher_rb
+  loop: ["{{ launcher_dest }}", "{{ launcher_prev }}"]
+
+- name: There is a launch.py.prev to roll back to
+  ansible.builtin.assert:
+    that: launcher_rb.results[1].stat.exists
+    fail_msg: "no {{ launcher_prev }}: nothing to roll back to (backups: {{ launcher_backup_root }}/*-launch/)"
+    quiet: true
+
+- name: Launch.py.prev compiles (compile() only, writes no .pyc)
+  ansible.builtin.command:
+    argv: ["{{ launcher_python }}", "-I", "-c", "import sys; compile(open(sys.argv[1]).read(), sys.argv[1], 'exec')", "{{ launcher_prev }}"]
+  changed_when: false
+  check_mode: false
+
+- name: Plan
+  ansible.builtin.set_fact:
+    launcher_rb_changes: "{{ not launcher_rb.results[0].stat.exists or launcher_rb.results[0].stat.checksum != launcher_rb.results[1].stat.checksum }}"
+    launcher_rb_dir: "{{ launcher_backup_root }}/{{ launcher_stamp }}-launch-rollback"
+
+- name: Report before
+  ansible.builtin.debug:
+    msg:
+      - "live {{ launcher_dest }} sha256={{ launcher_rb.results[0].stat.checksum | default('(none)') }}"
+      - "prev {{ launcher_prev }} sha256={{ launcher_rb.results[1].stat.checksum }}"
+      - "{{ 'WILL RESTORE prev; the live file goes to ' ~ launcher_rb_dir ~ '/launch.py' if launcher_rb_changes else 'launch.py already equals launch.py.prev: nothing to do' }}"
+
+- name: Rollback backup dir
+  ansible.builtin.file:
+    path: "{{ launcher_rb_dir }}"
+    state: directory
+    mode: "0755"
+  when: launcher_rb_changes and launcher_rb.results[0].stat.exists
+
+- name: Back up the live launch.py before the rollback
+  ansible.builtin.copy:
+    src: "{{ launcher_dest }}"
+    dest: "{{ launcher_rb_dir }}/launch.py"
+    remote_src: true
+    mode: preserve
+  when: launcher_rb_changes and launcher_rb.results[0].stat.exists and not ansible_check_mode
+
+- name: Restore launch.py.prev
+  ansible.builtin.copy:
+    src: "{{ launcher_prev }}"
+    dest: "{{ launcher_dest }}"
+    remote_src: true
+    mode: "0755"
+  when: launcher_rb_changes
+
+- name: Launch.py now equals launch.py.prev
+  ansible.builtin.stat:
+    path: "{{ launcher_dest }}"
+    checksum_algorithm: sha256
+  register: launcher_rb_after
+  failed_when: launcher_rb_after.stat.checksum != launcher_rb.results[1].stat.checksum
+  when: not ansible_check_mode
+
+- name: Report after
+  ansible.builtin.debug:
+    msg: "rolled back: {{ launcher_dest }} sha256={{ launcher_rb_after.stat.checksum }} (= launch.py.prev); no ES-DE restart needed"
+  when: not ansible_check_mode

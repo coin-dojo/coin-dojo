@@ -1,0 +1,606 @@
+# fightcade (#208): Fightcade mode. Two privilege zones (Security review, the maintainer's cabinet: /data is coindojo's):
+#   root   apt, the launcher + its helpers (/usr/local/lib/coin-dojo-fightcade) and config, all on the root fs.
+#          Root never writes, unpacks, chowns, executes or follows anything under the data partition.
+#   coindojo everything under hk_fightcade_install_dir / hk_fightcade_data_dir (staging, sha256 check + unpack,
+#          Box64, lobby patches, FBNeo base ini, base prefix) and the home-dir handler files. Those binaries only
+#          ever run as coindojo, so coindojo owning them gains coindojo nothing.
+# Order: values -> guard -> root zone -> local artifacts (the Mac) -> coindojo zone. Nothing here starts Fightcade.
+# fightcade_install: first-launch (#267): no local downloads, no third-party tree, lobby patches, base ini or prefix
+# here; the root zone gets the first-launch engine + screen + manifest instead, and the launcher's first start does
+# those steps on the cabinet (files/hk-fightcade-fetch). Box64, the data dirs, presets and the fcade:// handler stay.
+- name: The install mode is deploy or first-launch (#267)
+  ansible.builtin.assert:
+    that: fightcade_install in ['deploy', 'first-launch']
+    fail_msg: "hk_fightcade_install is '{{ fightcade_install }}': use deploy or first-launch."
+    quiet: true
+
+- name: Derived values (lobby CSS text, prefix stamp, archive stamps)
+  ansible.builtin.set_fact:
+    fightcade_first_launch: "{{ fightcade_install == 'first-launch' }}"
+    fightcade_css_text: "{{ lookup('ansible.builtin.template', 'inject.css.j2') }}"
+    fightcade_js_text: "{{ lookup('ansible.builtin.template', 'inject.js.j2') }}"
+    fightcade_prefix_stamp: >-
+      wine={{ (fightcade_archives | selectattr('name', 'equalto', 'wine') | first).sha256 }}
+      recipe={{ fightcade_prefix_recipe }} dlloverrides=mscoree,mshtml=d csmt=0 winebus-map=0
+    # name -> "<sha256> <sha1 of strip/links/dist[/patches]>": a new pin, link list or patch re-unpacks (never the local
+    # src path). `patches` counts only when non-empty, so archives without one keep their stamps (#215).
+    fightcade_stamps: >-
+      {% set out = {} %}{% for a in fightcade_archives %}{% set recipe = {'strip': a.strip, 'links': a.links, 'dist': a.dist} %}{%
+      if a.patches | default([]) %}{% set _ = recipe.update({'patches': a.patches}) %}{% endif %}{% set _ = out.update({a.name:
+      a.sha256 ~ ' ' ~ (recipe | to_json(sort_keys=true) | hash('sha1'))}) %}{% endfor %}{{ out }}
+
+# No root-run path on the data partition or inside the coindojo-owned trees (Security #208 A/B).
+- name: Root-run paths stay off the coindojo-owned data partition
+  ansible.builtin.assert:
+    that:
+      - item is match('/')
+      - not ((item ~ '/') is match((fightcade_data_root ~ '/') | regex_escape))
+      - not ((item ~ '/') is match((fightcade_data ~ '/') | regex_escape))
+      - not ((item ~ '/') is match((fightcade_dir ~ '/') | regex_escape))
+    fail_msg: >-
+      {{ item }} is run or written by root but lies under {{ fightcade_data_root }} / {{ fightcade_data }} /
+      {{ fightcade_dir }}, which the cabinet user controls. Root-run files belong on the root fs.
+    quiet: true
+  loop: ["{{ fightcade_bin }}", "{{ fightcade_conf }}", "{{ fightcade_libexec }}", "{{ fightcade_binfmt_conf }}", "{{ fightcade_fetch_manifest }}"]
+
+# --- guard ---------------------------------------------------------------------------------------------------------
+# Fightcade mode counts only while the session in session.pid is alive and is coin-dojo-session (#209: a stale
+# current-mode left by a killed session is no session), the same rule as esde_common and cabinet-guard.
+- name: Is the session in Fightcade mode (a live session only)
+  ansible.builtin.shell:
+    cmd: >-
+      grep -qsx fightcade {{ (fightcade_run_dir ~ '/current-mode') | quote }} &&
+      grep -qsxE "[0-9]+" {{ (fightcade_run_dir ~ '/session.pid') | quote }} &&
+      xargs -I{} grep -qs coin-dojo-session /proc/{}/cmdline < {{ (fightcade_run_dir ~ '/session.pid') | quote }} &&
+      echo fightcade || true
+  register: fightcade_mode
+  changed_when: false
+  check_mode: false
+
+- name: Look for a running lobby or Wine (pgrep -x)
+  ansible.builtin.command:
+    cmd: "{{ fightcade_guard_cmd }}"
+  register: fightcade_running
+  changed_when: false
+  failed_when: fightcade_running.rc > 1
+  check_mode: false
+
+- name: Refuse to touch Fightcade files while Fightcade mode runs
+  ansible.builtin.assert:
+    that:
+      - fightcade_running.rc == 1
+      - fightcade_mode.stdout | trim != 'fightcade'
+    fail_msg: >-
+      Fightcade mode is running (session: {{ fightcade_mode.stdout | trim | default('-', true) }};
+      {{ fightcade_running.stdout_lines | join(', ') | default('no processes', true) }}): leave it (SELECT+START), then re-run.
+    quiet: true
+
+# --- root zone: packages, launcher, helpers, config (root fs only) ---------------------------------------------
+- name: Packages for Xwayland, Electron and Box64's wrapped libraries
+  ansible.builtin.apt:
+    name: "{{ fightcade_packages }}"
+    state: present
+    install_recommends: false
+  become: true
+  when: fightcade_packages_manage | bool
+
+- name: Helper dir (root-owned, root fs)
+  ansible.builtin.file:
+    path: "{{ fightcade_libexec }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Helpers (unpack, base prefix, the wine/wineserver/fcade-url wrapper)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ fightcade_libexec }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  loop: [hk-fightcade-unpack, hk-fightcade-prefix, hk-fightcade-wrap]
+
+- name: The wrapper's names
+  ansible.builtin.file:
+    src: hk-fightcade-wrap
+    dest: "{{ fightcade_libexec }}/{{ item }}"
+    state: link
+    owner: root
+    group: root
+    force: true
+  become: true
+  loop: [wine, wineserver, fcade-url]
+
+# --- first-launch download (#267): engine, screen, the ini filter it reuses, its manifest (root fs, root-owned) ------
+- name: First-launch engine, screen and the FBNeo ini filter (first-launch only)
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ fightcade_libexec }}/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  become: true
+  loop:
+    - { src: hk-fightcade-fetch, dest: hk-fightcade-fetch, mode: "0755" }
+    - { src: hk_fc_firstrun.py, dest: hk_fc_firstrun.py, mode: "0644" }
+    - { src: "{{ role_path }}/../../filter_plugins/hk_fbneo_ini.py", dest: hk_fbneo_ini.py, mode: "0644" }
+  loop_control:
+    label: "{{ item.dest }}"
+  when: fightcade_first_launch | bool
+
+- name: First-launch manifest (pins, unpack recipe, lobby files, ini keys, prefix stamp)
+  ansible.builtin.template:
+    src: coin-dojo-fightcade-fetch.json.j2
+    dest: "{{ fightcade_fetch_manifest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: fightcade_first_launch | bool
+
+- name: No first-launch pieces in deploy mode
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  become: true
+  loop: ["{{ fightcade_fetch }}", "{{ fightcade_firstrun }}", "{{ fightcade_libexec }}/hk_fbneo_ini.py", "{{ fightcade_fetch_manifest }}"]
+  when: not fightcade_first_launch | bool
+
+# --- binfmt_misc: MZ files -> the wine wrapper (#228; why, and why no flags: defaults "binfmt_misc") ----------------
+# Every +x Windows .exe on the cabinet then runs under Box64 + Wine as the user who runs it; the wrapper refuses root.
+# The live entry is read every deploy: a missing or different one (the maintainer's hand-registered hk-wine with other flags,
+# another interpreter) is registered again from the conf; an identical one is left alone.
+# #244 image build: only the binfmt.d file is written; /proc there is the BUILD machine's kernel, which is never read or
+# changed. systemd-binfmt registers the file at the image's first boot.
+- name: Read the live binfmt entry
+  ansible.builtin.command:
+    argv: [cat, "{{ fightcade_binfmt_proc }}/{{ fightcade_binfmt_name }}"]
+  register: fightcade_binfmt_live
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: not coin_dojo_image | default(false) | bool
+
+- name: Is the live entry ours (what the kernel prints for the rule, fs/binfmt_misc.c entry_status)
+  ansible.builtin.set_fact:
+    fightcade_binfmt_want: ["enabled", "interpreter {{ fightcade_libexec }}/wine", "flags:", "offset 0", "magic 4d5a"]
+    fightcade_binfmt_have: "{{ fightcade_binfmt_live.stdout_lines | map('trim') | list if (fightcade_binfmt_live.rc | default(1)) == 0 else [] }}"
+
+- name: Register Windows .exe files with the wine wrapper
+  when: fightcade_binfmt | bool
+  become: true
+  block:
+    - name: The binfmt.d rule (systemd-binfmt registers it at every boot)
+      ansible.builtin.copy:
+        content: "# Managed by coin-dojo ansible (role fightcade, #228): run Windows .exe files with Box64 + Wine.\n{{ fightcade_binfmt_rule }}\n"
+        dest: "{{ fightcade_binfmt_conf }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: fightcade_binfmt_file
+
+    - name: Would register the binfmt rule (dry run)
+      ansible.builtin.debug:
+        msg: "{{ fightcade_binfmt_name }}: live '{{ (fightcade_binfmt_have | join(' | ')) or 'missing' }}'; would register {{ fightcade_binfmt_rule }}"
+      changed_when: true
+      when: ansible_check_mode and (fightcade_binfmt_have != fightcade_binfmt_want or fightcade_binfmt_file is changed)
+
+    - name: Register the binfmt rule now (only this file; other entries stay)
+      ansible.builtin.command:
+        argv: ["{{ fightcade_binfmt_cmd }}", "{{ fightcade_binfmt_conf }}"]
+      changed_when: true
+      when: not ansible_check_mode and not coin_dojo_image | default(false) | bool and (fightcade_binfmt_have != fightcade_binfmt_want or fightcade_binfmt_file is changed)
+
+    - name: Read the binfmt entry back
+      ansible.builtin.command:
+        argv: [cat, "{{ fightcade_binfmt_proc }}/{{ fightcade_binfmt_name }}"]
+      register: fightcade_binfmt_after
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: not ansible_check_mode and not coin_dojo_image | default(false) | bool
+
+    - name: Fail when the kernel does not have the rule
+      ansible.builtin.assert:
+        that: fightcade_binfmt_after.rc == 0 and (fightcade_binfmt_after.stdout_lines | map('trim') | list) == fightcade_binfmt_want
+        fail_msg: >-
+          {{ fightcade_binfmt_proc }}/{{ fightcade_binfmt_name }} is
+          '{{ (fightcade_binfmt_after.stdout_lines + fightcade_binfmt_after.stderr_lines) | join(' | ') }}', wanted
+          '{{ fightcade_binfmt_want | join(' | ') }}' after {{ fightcade_binfmt_cmd }} {{ fightcade_binfmt_conf }}.
+          Is binfmt_misc mounted (ls {{ fightcade_binfmt_proc }}/register)? Fightcade's TEST GAME/TRAINING cannot start FBNeo without it.
+        quiet: true
+      when: not ansible_check_mode and not coin_dojo_image | default(false) | bool
+
+    - name: Look for other MZ handlers (a hand-registered one under another name)
+      ansible.builtin.shell:
+        cmd: >-
+          grep -lx 'magic 4d5a' {{ fightcade_binfmt_proc | quote }}/* 2>/dev/null |
+          grep -vx {{ (fightcade_binfmt_proc ~ '/' ~ fightcade_binfmt_name) | quote }} || true
+      register: fightcade_binfmt_others
+      changed_when: false
+      check_mode: false
+      when: not coin_dojo_image | default(false) | bool
+
+    - name: Warn about other MZ handlers (the newest registered wins)
+      ansible.builtin.debug:
+        msg: >-
+          WARN other binfmt handlers for MZ files: {{ fightcade_binfmt_others.stdout_lines | join(', ') }}. Check them
+          (cat) and remove the stale one (echo -1 | sudo tee <entry>) after review; {{ fightcade_binfmt_name }} is ours.
+      when: fightcade_binfmt_others.stdout_lines | default([]) | length > 0
+
+# The removal path (hk_fightcade_binfmt: false): unregister the entry, delete the conf. Fightcade's lobby then
+# cannot start games again (fcade gets ENOEXEC); the rest of Fightcade mode stays installed.
+- name: Remove the Windows .exe handler
+  when: not (fightcade_binfmt | bool)
+  become: true
+  block:
+    - name: Would unregister the binfmt entry (dry run)
+      ansible.builtin.debug:
+        msg: "would unregister {{ fightcade_binfmt_proc }}/{{ fightcade_binfmt_name }}"
+      changed_when: true
+      when: ansible_check_mode and fightcade_binfmt_have[:1] in [['enabled'], ['disabled']]
+
+    # Writing -1 to an entry removes it (fs/binfmt_misc.c bm_entry_write).
+    - name: Unregister the binfmt entry
+      ansible.builtin.shell:
+        cmd: "printf -- '-1\\n' > {{ (fightcade_binfmt_proc ~ '/' ~ fightcade_binfmt_name) | quote }}"
+      changed_when: true
+      when: not ansible_check_mode and not coin_dojo_image | default(false) | bool and fightcade_binfmt_have[:1] in [['enabled'], ['disabled']]
+
+    - name: Delete the binfmt.d rule
+      ansible.builtin.file:
+        path: "{{ fightcade_binfmt_conf }}"
+        state: absent
+
+- name: Launcher config
+  ansible.builtin.template:
+    src: coin-dojo-fightcade.conf.j2
+    dest: "{{ fightcade_conf }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: "The launcher (the contract path of #204; the session runs it)"
+  ansible.builtin.copy:
+    src: coin-dojo-fightcade
+    dest: "{{ fightcade_bin }}"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+# --- local artifacts (build/*/out, never in git) -----------------------------------------------------------------
+- name: Look for the local Fightcade downloads (make -C build fightcade)
+  ansible.builtin.stat:
+    path: "{{ item.src }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: fightcade_local
+  loop: "{{ fightcade_archives }}"
+  loop_control:
+    label: "{{ item.src | basename }}"
+  when: not fightcade_first_launch | bool
+
+- name: Refuse a local download that does not match its pin
+  ansible.builtin.assert:
+    that: item.stat.checksum == item.item.sha256
+    fail_msg: >-
+      {{ item.item.src }} has sha256 {{ item.stat.checksum }}, pinned {{ item.item.sha256 }}: refusing it.
+      Fetch it again (make -C build fightcade); a new release is re-pinned in build/fightcade/pins.json (the one source).
+    quiet: true
+  when: not fightcade_first_launch | bool and item.stat.exists
+  loop: "{{ fightcade_local.results }}"
+  loop_control:
+    label: "{{ item.item.src | basename }}"
+
+- name: Look for the local Box64 build (make -C build box64)
+  ansible.builtin.stat:
+    path: "{{ fightcade_box64_out }}/box64"
+  delegate_to: localhost
+  become: false
+  register: fightcade_box64_local
+
+# Box64 is not bit-reproducible: its own build wrote the .sha256 files; every file must still match them.
+- name: Check the local Box64 build against the .sha256 files it wrote
+  ansible.builtin.command:
+    cmd: sha256sum -c --quiet box64.sha256 box64.box64rc.sha256 x64lib.sha256
+    chdir: "{{ fightcade_box64_out }}"
+  delegate_to: localhost
+  become: false
+  register: fightcade_box64_sums
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: fightcade_box64_local.stat.exists
+
+- name: Refuse a Box64 build that does not match its own .sha256 files
+  ansible.builtin.assert:
+    that: fightcade_box64_sums.rc == 0
+    fail_msg: >-
+      {{ fightcade_box64_out }} does not match the .sha256 files its build wrote: refusing it.
+      {{ (fightcade_box64_sums.stdout_lines + fightcade_box64_sums.stderr_lines) | join('; ') }}. Rebuild: make -C build box64.
+    quiet: true
+  when: fightcade_box64_local.stat.exists
+
+# --- coindojo zone: everything on the data partition and in the home dir ------------------------------------------
+- name: Fightcade files as the cabinet user (never root under the data partition)
+  become: true
+  become_user: "{{ fightcade_user }}"
+  block:
+    # --- what the cabinet has ----------------------------------------------------------------------------------------
+    - name: Read the install stamps on the cabinet
+      ansible.builtin.slurp:
+        src: "{{ fightcade_dir }}/{{ item.dest }}/.hk-stamp"
+      register: fightcade_remote_stamps
+      failed_when: false
+      check_mode: false
+      loop: "{{ fightcade_archives }}"
+      loop_control:
+        label: "{{ item.dest }}"
+
+    - name: Look for Box64 on the cabinet
+      ansible.builtin.stat:
+        path: "{{ fightcade_dir }}/box64/box64"
+      register: fightcade_box64_remote
+
+    - name: Work out which archives need unpacking (stamp missing or different)
+      ansible.builtin.set_fact:
+        # first-launch (#267): nothing to upload, the cabinet downloads and unpacks them itself
+        fightcade_todo: >-
+          {% set out = [] %}{% for r in fightcade_remote_stamps.results %}{% if not fightcade_first_launch | bool and
+          (r.content | default('') | b64decode | trim) != fightcade_stamps[r.item.name] %}{% set _ = out.append(r.item)
+          %}{% endif %}{% endfor %}{{ out }}
+
+    - name: Refuse when an archive must be installed but has no local download
+      ansible.builtin.assert:
+        that: (fightcade_local.results | selectattr('item.name', 'equalto', item.name) | first).stat.exists
+        fail_msg: >-
+          {{ fightcade_dir }}/{{ item.dest }} is missing or outdated on the cabinet and {{ item.src }} does not exist here.
+          Fetch it first: make -C build fightcade. Nothing was changed.
+        quiet: true
+      loop: "{{ fightcade_todo }}"
+      loop_control:
+        label: "{{ item.dest }}"
+
+    - name: Refuse when Box64 is missing on the cabinet and not built here
+      ansible.builtin.assert:
+        that: fightcade_box64_local.stat.exists or fightcade_box64_remote.stat.exists
+        fail_msg: >-
+          {{ fightcade_dir }}/box64/box64 is missing on the cabinet and {{ fightcade_box64_out }}/box64 does not exist here.
+          Build it first: make -C build box64 (~10 min). Nothing was changed.
+        quiet: true
+
+    - name: Warn when Box64 is not built here (the cabinet copy stays)
+      ansible.builtin.debug:
+        msg: "WARN {{ fightcade_box64_out }}/box64 not found; Box64 on the cabinet is kept as it is (build it: make -C build box64)."
+      when: not fightcade_box64_local.stat.exists
+
+    - name: Free space where the install goes (first install only)
+      ansible.builtin.shell:
+        executable: /bin/bash
+        cmd: |
+          set -o pipefail
+          d={{ fightcade_dir | quote }}
+          while [ ! -d "$d" ]; do d=$(dirname "$d"); done
+          df -Pm "$d" | awk 'NR == 2 { print $4 }'
+      register: fightcade_free
+      changed_when: false
+      check_mode: false
+      when: fightcade_todo | length > 0 and not fightcade_box64_remote.stat.exists
+
+    - name: Refuse a first install that does not fit
+      ansible.builtin.assert:
+        that: fightcade_free.stdout | int >= fightcade_space_mib
+        fail_msg: >-
+          {{ fightcade_dir }} needs about {{ fightcade_space_mib }} MiB, its filesystem has {{ fightcade_free.stdout }} MiB free.
+          Free space (diskhygiene) or set hk_fightcade_install_dir to the data partition. Nothing was changed.
+        quiet: true
+      when: fightcade_free is not skipped
+
+    - name: Data and install dirs (the cabinet user's)
+      ansible.builtin.file:
+        path: "{{ item.0 }}"
+        state: directory
+        mode: "{{ item.1 }}"
+      loop: "{{ fightcade_data_dirs }}"
+      loop_control:
+        label: "{{ item.0 }}"
+
+    # --- Box64 ---------------------------------------------------------------------------------------------------------
+    - name: Box64 and its per-program tweaks (from the local build, never from git)
+      ansible.builtin.copy:
+        src: "{{ fightcade_box64_out }}/{{ item.0 }}"
+        dest: "{{ fightcade_dir }}/box64/{{ item.0 }}"
+        mode: "{{ item.1 }}"
+      loop: [[box64, "0755"], [box64.box64rc, "0644"], [BUILDINFO, "0644"]]
+      loop_control:
+        label: "{{ item.0 }}"
+      when: fightcade_box64_local.stat.exists
+
+    - name: Box64's x86_64 libraries
+      ansible.builtin.copy:
+        src: "{{ fightcade_box64_out }}/x64lib/"
+        dest: "{{ fightcade_dir }}/box64/x64lib/"
+        mode: "0755"
+        directory_mode: "0755"
+      when: fightcade_box64_local.stat.exists
+
+    # --- archives: upload to the data partition, unpack all-or-nothing, delete the upload ------------------------------
+    - name: Staging dir for uploads (the cabinet user's, 0700)
+      ansible.builtin.file:
+        path: "{{ fightcade_incoming }}"
+        state: directory
+        mode: "0700"
+      when: fightcade_todo | length > 0
+
+    - name: Upload the archives that changed
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ fightcade_incoming }}/{{ item.src | basename }}"
+        mode: "0600"
+      loop: "{{ fightcade_todo }}"
+      loop_control:
+        label: "{{ item.src | basename }}"
+
+    - name: Unpack them (sha256 checked again on the cabinet; a mismatch unpacks nothing; pinned patches applied)
+      ansible.builtin.command:
+        cmd: >-
+          {{ (fightcade_libexec ~ '/hk-fightcade-unpack') | quote }} --strip {{ item.strip | int }}
+          {% for l in item.links %} --link {{ (l.path ~ '=' ~ l.to) | quote }}{% endfor %}
+          {% for d in item.dist %} --dist {{ d | quote }}{% endfor %}
+          {% for x in item.patches | default([]) %} --patch {{ (x.path ~ '=' ~ x.sha256 ~ ':' ~ x.sed) | quote }}{% endfor %}
+          {{ (fightcade_incoming ~ '/' ~ (item.src | basename)) | quote }} {{ item.sha256 | quote }}
+          {{ (fightcade_dir ~ '/' ~ item.dest) | quote }} {{ fightcade_stamps[item.name] | quote }}
+      loop: "{{ fightcade_todo }}"
+      loop_control:
+        label: "{{ item.dest }}"
+      changed_when: true
+
+    - name: Delete the uploads
+      ansible.builtin.file:
+        path: "{{ fightcade_incoming }}/{{ item.src | basename }}"
+        state: absent
+      loop: "{{ fightcade_todo }}"
+      loop_control:
+        label: "{{ item.src | basename }}"
+
+    # --- emulator .exe files: executable (#228) ----------------------------------------------------------------------
+    # fcade execs them directly (the binfmt handler above needs +x); the 2.1.45 archive ships fcadefbneo.exe 0644.
+    # Not followed: the links into the data dir (find -P), other filesystems (-xdev).
+    - name: Find emulator .exe files that are not 0755
+      ansible.builtin.command:
+        argv: [find, "{{ fightcade_dir }}/Fightcade/emulator", -xdev, -type, f, -iname, "*.exe", "!", -perm, "0755"]
+      register: fightcade_exe_modes
+      changed_when: false
+      failed_when: fightcade_exe_modes.rc != 0 and not ansible_check_mode   # a dry run before the first unpack has no tree
+      check_mode: false
+      when: not fightcade_first_launch | bool
+
+    - name: Emulator .exe files 0755
+      ansible.builtin.file:
+        path: "{{ item }}"
+        mode: "0755"
+      loop: "{{ fightcade_exe_modes.stdout_lines | default([]) }}"
+
+    # --- lobby patches (re-applied on every deploy) -------------------------------------------------------------------
+    - name: Read Fightcade's own nativefier.json
+      ansible.builtin.slurp:
+        src: "{{ fightcade_app }}/nativefier.json.dist"
+      register: fightcade_nativefier_dist
+      failed_when: false
+      check_mode: false
+      when: not fightcade_first_launch | bool
+
+    - name: Fightcade's nativefier.json with no menu bar, maximized
+      ansible.builtin.copy:
+        content: "{{ (fightcade_nativefier_dist.content | b64decode | from_json) | combine(fightcade_nativefier_keys) | to_json(sort_keys=true) }}\n"
+        dest: "{{ fightcade_app }}/nativefier.json"
+        mode: "0644"
+      when: not fightcade_first_launch | bool and (fightcade_nativefier_dist.content is defined)
+
+    - name: The lobby's inject CSS (a centred column inside the bezel)
+      ansible.builtin.copy:
+        content: "{{ fightcade_css_text }}"
+        dest: "{{ fightcade_inject_css }}"
+        mode: "0644"
+      when: not fightcade_first_launch | bool and (fightcade_nativefier_dist.content is defined or not ansible_check_mode)
+
+    - name: The lobby's on-screen keyboard script (#227; nativefier's preload requires inject/inject.js)
+      ansible.builtin.copy:
+        content: "{{ fightcade_js_text }}"
+        dest: "{{ fightcade_inject_js }}"
+        mode: "0644"
+      when: not fightcade_first_launch | bool and (fightcade_nativefier_dist.content is defined or not ansible_check_mode)
+
+    # --- FBNeo base ini (the launcher copies it fresh to fightcade_ini on every start) ------------------------------
+    - name: Read Fightcade's own fcadefbneo.default.ini
+      ansible.builtin.slurp:
+        src: "{{ fightcade_ini_dist }}"
+      register: fightcade_ini_default
+      failed_when: false
+      check_mode: false
+      when: not fightcade_first_launch | bool
+
+    - name: Fail when the Fightcade tree has no default ini (unpack did not finish)
+      ansible.builtin.assert:
+        that: fightcade_ini_default.content is defined
+        fail_msg: "{{ fightcade_ini_dist }} is missing: the Fightcade tree is incomplete. Re-run the deploy; if it stays, remove {{ fightcade_dir }}/Fightcade/.hk-stamp."
+        quiet: true
+      when: not fightcade_first_launch | bool and (not ansible_check_mode)
+
+    - name: FBNeo base ini (option B, Windows-form ROM paths)
+      ansible.builtin.copy:
+        content: "{{ fightcade_ini_default.content | b64decode | hk_fbneo_ini(lookup('ansible.builtin.template', 'fcadefbneo-coin-dojo.ini.j2')) }}"
+        dest: "{{ fightcade_ini_base }}"
+        mode: "0644"
+      when: not fightcade_first_launch | bool and (fightcade_ini_default.content is defined)
+
+    # #230: the stick presets the base ini points at, only when absent (the maintainer's edits and F5 maps stay; defaults).
+    - name: FBNeo stick presets (P1/P2 on the cabinet sticks; only when absent)
+      ansible.builtin.template:
+        src: fbneo-preset.ini.j2
+        dest: "{{ fightcade_presets_dir }}/coin-dojo-p{{ fightcade_player }}.ini"
+        mode: "0644"
+        force: false
+      loop: "{{ fightcade_preset_players }}"
+      loop_control:
+        loop_var: fightcade_player
+
+    # --- fcade:// handler (home dir) -------------------------------------------------------------------------------
+    - name: Applications dir for the fcade:// handler
+      ansible.builtin.file:
+        path: "{{ fightcade_desktop_file | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: The fcade:// handler (xdg-open from the lobby starts the game)
+      ansible.builtin.template:
+        src: coin-dojo-fcade.desktop.j2
+        dest: "{{ fightcade_desktop_file }}"
+        mode: "0644"
+
+    - name: Config dir for mimeapps.list
+      ansible.builtin.file:
+        path: "{{ fightcade_mimeapps | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Links fcade:// open with the handler (mimeapps.list, one line)
+      ansible.builtin.lineinfile:
+        path: "{{ fightcade_mimeapps }}"
+        regexp: '^x-scheme-handler/fcade='
+        line: "x-scheme-handler/fcade={{ fightcade_desktop_file | basename }}"
+        insertafter: '^\[Default Applications\]'
+        create: true
+        mode: "0644"
+
+    - name: The mimeapps.list section header
+      ansible.builtin.lineinfile:
+        path: "{{ fightcade_mimeapps }}"
+        line: "[Default Applications]"
+        insertbefore: BOF
+        create: true
+        mode: "0644"
+
+    # --- base Wine prefix (once per Wine build and recipe) -------------------------------------------------------------
+    - name: Read the base prefix stamp
+      ansible.builtin.slurp:
+        src: "{{ fightcade_prefix }}/.hk-stamp"
+      register: fightcade_prefix_have
+      failed_when: false
+      check_mode: false
+      when: not fightcade_first_launch | bool
+
+    - name: Build the base Wine prefix (wineboot under Box64, ~10 s on the Pi 5)
+      ansible.builtin.command:
+        argv: ["{{ fightcade_libexec }}/hk-fightcade-prefix", "{{ fightcade_prefix }}", "{{ fightcade_prefix_stamp }}"]
+      environment:
+        COIN_DOJO_FIGHTCADE_CONF: "{{ fightcade_conf }}"
+      register: fightcade_prefix_built
+      changed_when: true
+      when: not fightcade_first_launch | bool and ((fightcade_prefix_have.content | default('') | b64decode | trim) != fightcade_prefix_stamp)

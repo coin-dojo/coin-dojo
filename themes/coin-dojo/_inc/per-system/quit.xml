@@ -1,0 +1,26 @@
+<!-- Per-system overrides for the QUIT TO MAIN MENU carousel entry (#214, art #218), included by theme.xml as
+     ./_inc/per-system/${system.theme}.xml. Same block as MUST PLAY (pictogram, chip, badge, pill), but QUIT is a
+     tool, not a game list: the "1 GAME" pill gives way to a pill that says where it goes, in the counter's look.
+     Paths here resolve from this folder (a ${uiBold}-style ./_inc path would point into _inc/per-system/_inc). -->
+<theme>
+    <view name="system">
+        <text name="gameCounter">
+            <visible>false</visible>
+        </text>
+        <text name="quitHint">
+            <pos>0.5 0.622</pos>
+            <origin>0.5 0.5</origin>
+            <size>0.30 0.052</size>
+            <text>Back to the boot menu</text>
+            <fontPath>./../fonts/Rajdhani-Bold.ttf</fontPath>
+            <fontSize>0.024</fontSize>
+            <color>${gameCounterColor}</color>
+            <backgroundColor>${gameCounterBg}</backgroundColor>
+            <backgroundCornerRadius>0.026</backgroundCornerRadius>
+            <horizontalAlignment>center</horizontalAlignment>
+            <verticalAlignment>center</verticalAlignment>
+            <letterCase>uppercase</letterCase>
+            <zIndex>20</zIndex>
+        </text>
+    </view>
+</theme>

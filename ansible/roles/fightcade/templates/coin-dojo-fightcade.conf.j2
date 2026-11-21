@@ -1,0 +1,47 @@
+# Managed by coin-dojo ansible (role fightcade, #208). Sourced (bash) by coin-dojo-fightcade and the wrappers and
+# helpers in {{ fightcade_libexec }}. Change the role defaults or config/variables.d/fightcade.yml, not this file.
+HK_FC_DIR={{ fightcade_dir | quote }}
+HK_FC_BINDIR={{ fightcade_libexec | quote }}
+HK_FC_BOX64={{ (fightcade_dir ~ '/box64/box64') | quote }}
+HK_FC_BOX64_RC={{ (fightcade_dir ~ '/box64/box64.box64rc') | quote }}
+HK_FC_BOX64_LIB={{ (fightcade_dir ~ '/box64/x64lib') | quote }}
+HK_FC_WINE={{ (fightcade_dir ~ '/wine') | quote }}
+HK_FC_ELECTRON={{ (fightcade_dir ~ '/electron/electron') | quote }}
+HK_FC_TREE={{ (fightcade_dir ~ '/Fightcade') | quote }}
+HK_FC_APP={{ fightcade_app | quote }}
+HK_FC_CSS={{ fightcade_inject_css | quote }}
+HK_FC_CSS_SHA256={{ fightcade_css_text | hash('sha256') }}
+HK_FC_JS={{ fightcade_inject_js | quote }}
+HK_FC_JS_SHA256={{ fightcade_js_text | hash('sha256') }}
+HK_FC_INI_BASE={{ fightcade_ini_base | quote }}
+HK_FC_INI={{ fightcade_ini | quote }}
+HK_FC_PREFIX={{ fightcade_prefix | quote }}
+HK_FC_PREFIX_STAMP={{ fightcade_prefix_stamp | quote }}
+HK_FC_SHM_PREFIX={{ fightcade_ram_prefix | quote }}
+HK_FC_PROFILE={{ fightcade_profile | quote }}
+HK_FC_LOGS={{ fightcade_logs | quote }}
+HK_FC_UNIT={{ fightcade_unit | quote }}
+# The binfmt_misc entry that runs FBNeo's .exe through the wine wrapper (#228); empty = the handler is off.
+HK_FC_BINFMT={{ ((fightcade_binfmt_proc ~ '/' ~ fightcade_binfmt_name) if fightcade_binfmt | bool else '') | quote }}
+HK_FC_SCOPE=1
+# No memory cgroup on the Pi kernel (cgroup.controllers = cpuset cpu io pids), so no MemorySwapMax here; global
+# vm.swappiness=1 is the swap fix (#209, #204 v2).
+HK_FC_SCOPE_PROPS=()
+HK_FC_ELECTRON_FLAGS=({% for f in fightcade_electron_flags %}{{ f | quote }}{{ ' ' if not loop.last else '' }}{% endfor %})
+HK_FC_CURSOR={{ fightcade_cursor_theme | quote }}
+HK_FC_STICKMOUSE={{ fightcade_stickmouse_unit | quote }}
+# #233: the PulseAudio sink Fightcade mode plays to (PULSE_SINK for the lobby and FBNeo only): auto, default, a name.
+HK_FC_AUDIO_SINK={{ fightcade_audio_sink | quote }}
+HK_FC_PACTL={{ fightcade_pactl | quote }}
+HK_FC_DRM_DIR={{ fightcade_drm_dir | quote }}
+# #257: wineserver -p at the start of Fightcade mode (one persistent wineserver, ended with the mode); 0 = wine starts its own on demand.
+HK_FC_WINESERVER_PERSIST=1
+# #267: deploy = the deploy installed Wine/Electron/Fightcade; first-launch = the launcher's first start downloads them
+# (HK_FC_FETCH, its screen HK_FC_FIRSTRUN drawn with the boot menu's settings_app.py from HK_FC_UI_LIB).
+HK_FC_INSTALL={{ fightcade_install | quote }}
+HK_FC_FETCH={{ fightcade_fetch | quote }}
+HK_FC_FIRSTRUN={{ fightcade_firstrun | quote }}
+HK_FC_FETCH_MANIFEST={{ fightcade_fetch_manifest | quote }}
+HK_FC_UI_LIB={{ fightcade_ui_lib | quote }}
+HK_FC_BOX64_FAST={{ 1 if fightcade_box64_fast | bool else 0 }}
+HK_FC_BOX64_FAST_ENV=({% for k, v in fightcade_box64_fast_env.items() %}{{ (k ~ '=' ~ v) | quote }}{{ ' ' if not loop.last else '' }}{% endfor %})

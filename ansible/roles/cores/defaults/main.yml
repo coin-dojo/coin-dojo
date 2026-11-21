@@ -1,0 +1,40 @@
+# cores (#244): the libretro cores the launcher runs, and the ROM folders it reads, both from launch.py's own table
+# (files/launcher_table.py reads skills/collections/launch.py CORE_BY_SYSTEM; no list is typed here). Play `pios`
+# (site.yml) and the image build (image.yml).
+#
+#   make deploy TAGS=cores BECOME=1 [APPLY=1]
+#
+# Only what is MISSING is installed: a core file or ROM folder that exists is never replaced or re-owned (the
+# cabinet's cores stay as they are). Ship-no-artifacts: a core comes from the libretro buildbot at deploy/build time,
+# or from a local build output (build/*/out, never in git).
+#
+# --- levers (pass-through) -------------------------------------------------------------------------------------
+cores_user: "{{ hk_cabinet_user }}"
+cores_group: "{{ hk_cabinet_group }}"
+cores_rom_root: "{{ hk_rom_root }}"
+
+# --- internal (not levers) -----------------------------------------------------------------------------------
+cores_launch_src: "{{ hk_repo_root }}/skills/collections/launch.py"   # internal: the table's one source
+# Cores that are BUILT here instead of downloaded (bare name -> local build output). The cabinet runs Stella 7.0 from
+# build/stella (launch.py: "built from source"); the other eight are built from pinned commits (#274, build/<core>,
+# steps in build/cores/core.sh) so the licence bundle can name their exact source. Each build wrote a .sha256 next to
+# the file, checked before the copy (make -C build cores builds all eight; MAME takes hours).
+cores_built:   # internal
+  fbneo: "{{ hk_repo_root }}/build/fbneo/out/fbneo_libretro.so"
+  genesis_plus_gx: "{{ hk_repo_root }}/build/genesis_plus_gx/out/genesis_plus_gx_libretro.so"
+  mame: "{{ hk_repo_root }}/build/mame/out/mame_libretro.so"
+  mednafen_pce: "{{ hk_repo_root }}/build/mednafen_pce/out/mednafen_pce_libretro.so"
+  mednafen_saturn: "{{ hk_repo_root }}/build/mednafen_saturn/out/mednafen_saturn_libretro.so"
+  nestopia: "{{ hk_repo_root }}/build/nestopia/out/nestopia_libretro.so"
+  pcsx_rearmed: "{{ hk_repo_root }}/build/pcsx_rearmed/out/pcsx_rearmed_libretro.so"
+  snes9x: "{{ hk_repo_root }}/build/snes9x/out/snes9x_libretro.so"
+  stella: "{{ hk_repo_root }}/build/stella/out/stella_libretro.so"
+# A release (HK_LICENCES_STRICT=1 exactly, as licences.py reads it) installs only cores built from their pins and
+# fails on a missing build output. Otherwise (deploys, personal and offline images) a built core with no output is
+# downloaded from the buildbot below, with a WARN line: not source-pinned, fine for personal use, not for a release.
+cores_require_built: "{{ lookup('ansible.builtin.env', 'HK_LICENCES_STRICT') == '1' }}"   # internal
+# The libretro buildbot's aarch64 nightlies (<name>_libretro.so.zip), for a launcher core that is not in cores_built
+# (none since #274) or built but with no build output yet. Not pinned by sha256: the buildbot keeps only `latest`.
+# A core on the host is never downloaded.
+cores_buildbot: https://buildbot.libretro.com/nightly/linux/aarch64/latest   # internal
+# The zips go to a fresh temp dir (ansible.builtin.tempfile), removed after unpacking even when a step fails.

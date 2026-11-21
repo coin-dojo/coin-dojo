@@ -1,0 +1,340 @@
+# fightcade (#208, part B of #204): Fightcade mode. The Fightcade 2 lobby runs on the official arm64 Electron 9.1.0
+# (no translation); its FBNeo (fcadefbneo.exe, x86) runs under Box64 0.4.4 + Wine 10.0 amd64-wow64, inside the
+# session's cage through Xwayland. Every game setting is the #92 measured winner, option B (the maintainer 2026-11-18, input
+# lag decides): D3D9 (nVidSelect 4), fullscreen 1920x1080 with the 4:3 picture at x=240..1679, vsync off, csmt off.
+#
+#   make deploy TAGS=fightcade BECOME=1 [APPLY=1]        cabinet (dry run unless APPLY=1)
+#   make deploy LIMIT=coin-dojo-vm TAGS=fightcade [APPLY=1]
+#
+# Inputs (never in git, ship-no-artifacts): `make -C build box64` (build/box64/out) and `make -C build fightcade`
+# (build/fightcade/out). The session (#209) runs /usr/local/bin/coin-dojo-fightcade; nothing here restarts anything.
+# hk_fightcade_install: first-launch (#267) installs everything EXCEPT Wine, Electron and Fightcade (no
+# build/fightcade needed): the launcher's first start downloads them on the cabinet (files/hk-fightcade-fetch, its
+# screen files/hk_fc_firstrun.py) from the URLs in build/fightcade/pins.json, sha256-checked, and does the steps this
+# role does for `deploy` (unpack, lobby patches, FBNeo base ini, base prefix). the maintainer's cabinet stays on `deploy`.
+# Rollback: remove fightcade_bin (the session then shows only ARCADE); the install dir and data dir can stay.
+#
+# --- levers (config/variables.d/fightcade.yml, paths.yml, host.yml) ---------------------------------------------
+fightcade_user: "{{ hk_cabinet_user }}"
+fightcade_group: "{{ hk_cabinet_group }}"
+fightcade_home: "{{ hk_cabinet_home }}"
+fightcade_dir: "{{ hk_fightcade_install_dir }}"
+fightcade_data: "{{ hk_fightcade_data_dir }}"
+fightcade_rom_root: "{{ hk_rom_root }}"
+fightcade_data_root: "{{ hk_data_root }}"
+fightcade_box64_fast: "{{ hk_fightcade_box64_fast }}"
+fightcade_cursor_theme: "{{ hk_fightcade_cursor_theme }}"
+fightcade_uid: "{{ hk_cabinet_uid }}"
+fightcade_binfmt: "{{ hk_fightcade_binfmt }}"   # false = the removal path: unregister the handler, delete its conf
+fightcade_audio_sink: "{{ hk_fightcade_audio_sink }}"   # #233: auto | default | a PulseAudio sink name
+fightcade_install: "{{ hk_fightcade_install }}"   # #267: deploy | first-launch
+
+# --- internal (not levers) ---------------------------------------------------------------------------------------
+fightcade_build_root: "{{ hk_repo_root }}/build"   # internal
+fightcade_bin: /usr/local/bin/coin-dojo-fightcade   # internal: the #204 contract name (session_fightcade_bin)
+fightcade_conf: /usr/local/etc/coin-dojo-fightcade.conf   # internal: sourced by the launcher and the wrappers
+# Root-owned helpers on the root fs (unpack, prefix, the wine/wineserver/fcade-url wrapper): run as coindojo, never as
+# root; the session's cleanup runs <libexec>/wineserver -k (session_wineserver).
+fightcade_libexec: /usr/local/lib/coin-dojo-fightcade   # internal
+fightcade_unit: coin-dojo-fightcade   # internal: systemd-run --user --scope --unit= (session_fightcade_unit + .scope)
+fightcade_run_dir: "{{ coin_dojo_run_dir }}"   # internal: group_vars/all.yml (#209): current-mode, session.pid
+# The read-only RAM prefix built per launch (#92 dip fix), in the session's tmpfs run dir (Security: not world-shared
+# /dev/shm; the registry is ~3.7 MB, /run/user/<uid> is 10 % of RAM).
+fightcade_ram_prefix: "{{ fightcade_run_dir }}/fcprefix"   # internal
+fightcade_stickmouse_unit: coin-dojo-stickmouse.service   # internal: #211, started/stopped when installed
+fightcade_packages_manage: true   # internal: tests switch apt off
+# #233: what the launcher asks PulseAudio and reads DRM connector states from (tests point both at fakes).
+fightcade_pactl: pactl   # internal
+fightcade_drm_dir: /sys/class/drm   # internal
+fightcade_guard_cmd: "pgrep -x -u {{ fightcade_uid }} 'electron|wineserver|fcadefbneo.exe'"   # internal
+fightcade_space_mib: 1500   # internal: free MiB on the install dir's filesystem for a first install (1.3 GB unpacked, VM 2026-11-18)
+
+# --- first-launch download (#267, fightcade_install: first-launch) ---------------------------------------------------
+# Root-owned on the root fs like the other helpers; run as the cabinet user by the launcher. The manifest is the
+# role's own facts (pins, unpack recipe and stamps, lobby files, ini keys, prefix stamp) rendered as JSON, so the
+# cabinet repeats exactly the deploy's steps without Ansible.
+fightcade_fetch: "{{ fightcade_libexec }}/hk-fightcade-fetch"   # internal: the download + install engine (python3)
+fightcade_firstrun: "{{ fightcade_libexec }}/hk_fc_firstrun.py"   # internal: its full-screen consent + progress screen
+fightcade_fetch_manifest: /usr/local/etc/coin-dojo-fightcade-fetch.json   # internal
+fightcade_ui_lib: "{{ hk_tools_dir }}/settings"   # internal: settings_app.py + brand (the boot menu's SDL/cairo look, settings role)
+# Free space the engine wants before it starts: the downloads still to fetch + each archive's unpacked size
+# (install_mib below) + the base prefix + this margin. A fresh install: 292 + 1169 + 540 + 128 = 2129 MiB.
+fightcade_prefix_mib: 540   # internal: the base prefix (#208: ~540 MB)
+fightcade_fetch_margin_mib: 128   # internal
+
+# --- binfmt_misc: Windows .exe files run through the wine wrapper (#228) ------------------------------------------
+# Fightcade's fcade execs FBNeo's .exe directly (strace on the cabinet 2026-11-18 19:09: execve(".../fcadefbneo.exe")
+# = ENOEXEC; Box64's execve wrapper passes a non-ELF file to the real execve unchanged) and relies on a binfmt_misc
+# handler for MZ files. The kernel then runs `<interpreter> <exe path> <args...>` (fs/binfmt_misc.c,
+# load_misc_binary); the interpreter is our bash wrapper, so binfmt_script runs `/bin/bash <interpreter> <exe> ...`
+# and the wrapper's $0 is the interpreter path, ending in `wine` (fs/binfmt_script.c pushes bprm->interp, which
+# binfmt_misc set to the interpreter path). Flags: none. Not F: F opens the interpreter once at registration (the
+# inode), so a redeployed wrapper would not be used until re-registered, and its gain (chroots, other mount
+# namespaces) does not apply here. Not C/O: no credentials from the .exe's owner, no setuid semantics. Not P: the
+# exe path as argv[1] is what `wine` wants. The name is hk-wine, the one the maintainer may register by hand: systemd-binfmt
+# deletes an entry of the same name before it registers (src/binfmt/binfmt.c apply_rule/delete_rule).
+fightcade_binfmt_name: hk-wine   # internal
+fightcade_binfmt_rule: ":{{ fightcade_binfmt_name }}:M::MZ::{{ fightcade_libexec }}/wine:"   # internal
+fightcade_binfmt_conf: /etc/binfmt.d/coin-dojo-wine.conf   # internal
+fightcade_binfmt_proc: /proc/sys/fs/binfmt_misc   # internal: tests point it at a fake dir (never the host's)
+# Given the conf file, systemd-binfmt registers only that file and flushes nothing else (python3.13's entry stays);
+# `systemctl restart systemd-binfmt` would flush every entry first.
+fightcade_binfmt_cmd: /usr/lib/systemd/systemd-binfmt   # internal: tests use a fake
+
+# apt (Debian 13 names). Xwayland + xkbcomp for the X11 clients in cage; the arm64 libs Electron needs; the native
+# libs Box64 wraps for Wine's x86_64 unix side (X11, GL, Vulkan, ALSA/Pulse, SDL2, freetype, fontconfig); xdg-utils
+# routes the lobby's fcade:// links; xset (x11-xserver-utils) turns X blanking off; unzip unpacks Electron;
+# dmz-cursor-theme is the visible lobby cursor.
+fightcade_packages:   # internal
+  - xwayland
+  - x11-xkb-utils
+  - x11-xserver-utils
+  - xdg-utils
+  - unzip
+  - xz-utils
+  - dmz-cursor-theme
+  - pulseaudio-utils   # #233: pactl, the launcher's audio sink pick (the image has it; declared because we use it)
+  - libnss3
+  - libgtk-3-0t64
+  - libxss1
+  - libasound2t64
+  - libgbm1
+  - libatk-bridge2.0-0t64
+  - libcups2t64
+  - libsecret-1-0
+  - libnotify4
+  - libsdl2-2.0-0
+  - libusb-1.0-0
+  - libx11-6
+  - libx11-xcb1
+  - libxcomposite1
+  - libxcursor1
+  - libxdamage1
+  - libxext6
+  - libxfixes3
+  - libxi6
+  - libxinerama1
+  - libxrandr2
+  - libxrender1
+  - libxtst6
+  - libxxf86vm1
+  - libxkbcommon0
+  - libvulkan1
+  - libpulse0
+  - libgl1
+  - libegl1
+  - libfreetype6
+  - libfontconfig1
+
+# --- artifacts ---------------------------------------------------------------------------------------------------
+# The download pins (url, file, sha256, size) have ONE source, build/fightcade/pins.json (#267): fetch.sh, this role and
+# the cabinet's first-launch download all read it. Never write a pin here.
+fightcade_pins: "{{ lookup('ansible.builtin.file', fightcade_build_root ~ '/fightcade/pins.json') | from_json }}"   # internal
+# Archives (name, title, src, url, sha256, size, install_mib, dest, strip, links, dist, patches). `install_mib` = MiB
+# unpacked (xz -l / gzip -l / unzip -l of the pinned files, 2026-11-19), for the first-launch space check. `dest` is unpacked whole into
+# <fightcade_dir>/<dest> with `strip` leading folders removed, and stamped; a stamp that matches = nothing to copy.
+# `patches` (hk-fightcade-unpack --patch): a file of the archive, its pinned upstream sha256 and one sed expression,
+# applied at unpack; a different upstream file refuses the unpack. A non-empty list is part of the archive's stamp.
+fightcade_archives:   # internal
+  - name: wine
+    title: "{{ fightcade_pins.wine.title }}"
+    src: "{{ fightcade_build_root }}/fightcade/out/{{ fightcade_pins.wine.file }}"
+    url: "{{ fightcade_pins.wine.url }}"
+    sha256: "{{ fightcade_pins.wine.sha256 }}"
+    size: "{{ fightcade_pins.wine.size }}"
+    install_mib: 642
+    dest: wine
+    strip: 1
+    links: []
+    dist: []
+    patches: []
+  - name: electron
+    title: "{{ fightcade_pins.electron.title }}"
+    src: "{{ fightcade_build_root }}/fightcade/out/{{ fightcade_pins.electron.file }}"
+    url: "{{ fightcade_pins.electron.url }}"
+    sha256: "{{ fightcade_pins.electron.sha256 }}"
+    size: "{{ fightcade_pins.electron.size }}"
+    install_mib: 190
+    dest: electron
+    strip: 0
+    links: []
+    dist: []
+    patches: []
+  # Fightcade 2.1.45. The folders it writes become links into the data dir (the tree itself, the cabinet user's like
+  # the whole install dir, is only written by the deploy):
+  # FBNeo's config (fcadefbneo.ini, per-game inputs), its ROMs folder (= roms-extra, the lobby's ROM downloads),
+  # recordings and screenshots, and the fcade helper's log.
+  - name: fightcade
+    title: "{{ fightcade_pins.fightcade.title }}"
+    src: "{{ fightcade_build_root }}/fightcade/out/{{ fightcade_pins.fightcade.file }}"
+    url: "{{ fightcade_pins.fightcade.url }}"
+    sha256: "{{ fightcade_pins.fightcade.sha256 }}"
+    size: "{{ fightcade_pins.fightcade.size }}"
+    install_mib: 337
+    dest: Fightcade
+    strip: 1
+    links:
+      - { path: emulator/fbneo/config, to: "{{ fightcade_data }}/fbneo/config" }
+      - { path: emulator/fbneo/ROMs, to: "{{ fightcade_data }}/roms-extra" }
+      - { path: emulator/fbneo/recordings, to: "{{ fightcade_data }}/fbneo/recordings" }
+      - { path: emulator/fbneo/screenshots, to: "{{ fightcade_data }}/fbneo/screenshots" }
+      - { path: emulator/fcade.log, to: "{{ fightcade_data }}/logs/fcade.log" }
+    # kept pristine as <file>.dist: the role sets its keys over it (fightcade_nativefier_keys)
+    dist: [fc2-electron/resources/app/nativefier.json]
+    # Popups (window.open: about:blank, then navigated; nativefier's createNewWindow) are built from nativefier's
+    # DEFAULT_WINDOW_OPTIONS in lib/main.js (2.1.45: lines 4798-4810), not from nativefier.json: plugins on, no
+    # contextIsolation, the remote module on (Electron 9's default). This gives them the main window's hardened
+    # webPreferences (Security #215). sha256 = Fightcade 2.1.45's own main.js.
+    patches:
+      - path: fc2-electron/resources/app/lib/main.js
+        sha256: 2b19df4403fa05d79745fcccac62b6bb15b273af0ce52b70f4e286273695babe
+        sed: 's/^\( *\)plugins: true,$/\1plugins: false, contextIsolation: true, enableRemoteModule: false,/'
+# Box64 is built from source and is not bit-reproducible: it is checked against the .sha256 files the build wrote
+# (box64.sha256, box64.box64rc.sha256, x64lib.sha256), not a pin in git.
+fightcade_box64_out: "{{ fightcade_build_root }}/box64/out"   # internal
+
+# --- data dir layout (coindojo) ------------------------------------------------------------------------------------
+fightcade_prefix: "{{ fightcade_data }}/prefix"   # internal: base Wine prefix, built once per Wine build
+fightcade_profile: "{{ fightcade_data }}/profile"   # internal: Electron --user-data-dir, 0700 (the login session)
+fightcade_roms_extra: "{{ fightcade_data }}/roms-extra"   # internal
+fightcade_ini: "{{ fightcade_data }}/fbneo/config/fcadefbneo.ini"   # internal: FBNeo rewrites it; fresh per launch
+fightcade_ini_base: "{{ fightcade_dir }}/fcadefbneo.ini"   # internal: built from the template below
+fightcade_ini_dist: "{{ fightcade_dir }}/Fightcade/emulator/fbneo/config.dist/fcadefbneo.default.ini"   # internal
+fightcade_logs: "{{ fightcade_data }}/logs"   # internal
+fightcade_incoming: "{{ fightcade_data }}/.incoming"   # internal: the cabinet user's 0700 staging for uploads
+fightcade_data_dirs:   # internal: [path, mode]
+  - ["{{ fightcade_data }}", "0755"]
+  - ["{{ fightcade_dir }}", "0755"]
+  - ["{{ fightcade_dir }}/box64", "0755"]
+  - ["{{ fightcade_profile }}", "0700"]
+  - ["{{ fightcade_roms_extra }}", "0755"]
+  - ["{{ fightcade_rom_root }}/fightcade", "0755"]   # #298: Fightcade's own ROM versions (firstboot makes it on an image)
+  - ["{{ fightcade_data }}/fbneo", "0755"]
+  - ["{{ fightcade_data }}/fbneo/config", "0755"]
+  - ["{{ fightcade_presets_dir }}", "0755"]   # #230: the stick presets (FBNeo would make it 0775 itself)
+  - ["{{ fightcade_data }}/fbneo/recordings", "0755"]
+  - ["{{ fightcade_data }}/fbneo/screenshots", "0755"]
+  - ["{{ fightcade_logs }}", "0700"]   # fcade's own log may name match links
+
+# --- FBNeo: option B (#92 re-run 2026-11-18 04:29-04:35 UTC, sfiii3: 59.59 fps, max 28 ms, 0 frames > 33 ms) -------
+# Keys of fcadefbneo.ini set over Fightcade's own default ini (templates/fcadefbneo-coin-dojo.ini.j2).
+# #298: fightcade FIRST (its own FBNeo's versions, in the roms share as roms/fightcade; not an ES-DE system), then the
+# arcade folders the game menu uses; roms-extra comes after them. FBNeo reads szAppRomPaths[0..19] (20 slots), 8 used.
+fightcade_rom_dirs: [fightcade, arcade, fbneo, cps1, cps2, cps3, neogeo]   # internal: szAppRomPaths[0..6] under fightcade_rom_root
+fightcade_ini_keys:   # internal
+  nVidSelect: 4                 # D3D9, GPU-scaled (DirectDraw stretches on the CPU in Wine: 43 fps)
+  bVidAutoSwitchFull: 1
+  nVidHorWidth: 1920
+  nVidHorHeight: 1080
+  nVidScrnAspectX: 16
+  nVidScrnAspectY: 9
+  bVidCorrectAspect: 1          # 4:3 picture centred: x=240..1679
+  bVidFullStretch: 0
+  bVidUseHardwareGamma: 0
+  bVidVSync: 0                  # option B: vsync off (C's vsync costs up to a frame of input lag)
+  # #233: CPS-3 sfiii3 (59.59949 Hz, cps3run.cpp BurnSetRefreshRate) on the 60 Hz panel with vsync off repeats a frame
+  # every ~2.5 s: choppy in TRAINING (the maintainer 2026-11-18). FBNeo then runs any game between 50 and 60 Hz at exactly 60
+  # (burn.cpp BurnSetRefreshRate: nBurnFPS 6000; vector/30 Hz/PAL games keep theirs), ~0.7 % faster, no added lag.
+  # Offline only by Fightcade's own design: FcadeFBNeo v0.2.97.44-53 "Disabled force 60Hz framerate for online
+  # games: all games run at their original framerate now" (Fightcade/ChangeLog.txt:113, 2.1.45 tarball), so a match
+  # keeps 59.59 and both peers stay in step. No per-verb ini needed. Pacing proof + sources:
+  # docs/reference/fightcade-on-pi5.md "Frame pacing".
+  bForce60Hz: 1
+  bModelessMenu: 1              # what Fightcade2.sh forces on every start
+
+# --- lobby ---------------------------------------------------------------------------------------------------------
+fightcade_panel: { width: 1920, height: 1080 }   # internal: the cabinet's panel
+fightcade_column: { width: 1440, height: 1080 }   # internal: the bezel opening (x=240..1679), like ES-DE
+fightcade_app: "{{ fightcade_dir }}/Fightcade/fc2-electron/resources/app"   # internal
+fightcade_inject_css: "{{ fightcade_app }}/inject/inject.css"   # internal: nativefier injects this file
+fightcade_inject_js: "{{ fightcade_app }}/inject/inject.js"   # internal: nativefier's preload.js require()s this file (#227: the on-screen keyboard)
+# #227: chat macros of the on-screen keyboard: [{group, text}] from config; the player's own macros are a file the
+# page writes (fightcade_macros_file), which the deploy never touches.
+fightcade_chat_macros: "{{ hk_fightcade_chat_macros }}"
+fightcade_chat_macros_send: false   # internal: true = a macro also presses Enter. Decided (the maintainer, #227): false, START sends
+fightcade_macros_file: "{{ fightcade_data }}/macros.json"   # internal: owned by the cabinet user, 0600, written only by the page
+# #227: the keyboard's colours come from the brand tokens (brand/tokens.json), never typed into the CSS.
+fightcade_brand: "{{ (lookup('ansible.builtin.file', hk_repo_root ~ '/brand/tokens.json') | from_json).colors }}"   # internal: name -> {hex, role}
+# nativefier.json keys set over Fightcade's own (kept as nativefier.json.dist): no menu bar, maximized (cage does
+# that for parentless X11 windows anyway); internal links anchored to Fightcade's two origins; hardened
+# webPreferences (Security #208; popups get the same through the main.js patch above, #215). nativefier merges
+# browserwindowOptions shallowly, so webPreferences is given whole, with its preload and zoom kept.
+# Links that are not internal never load in the lobby: nativefier passes them, any scheme, to shell.openExternal,
+# i.e. xdg-open as the cabinet user (lib/main.js onWillNavigate / onNewWindowHelper). That is how fcade:// starts a
+# match (coin-dojo-fcade.desktop, the only handler this role registers). This role installs no web browser, so an
+# http(s) link opens nothing here; any other scheme goes to whatever xdg handler the image has. Not restricted
+# (Security #215, documented instead): a scheme filter means patching nativefier's openExternal call sites, on the path
+# every match start takes. The context menu ("Open Link in Default Browser") and devtools stay off
+# (disableContextMenu, disableDevTools in Fightcade's own nativefier.json).
+fightcade_nativefier_keys:   # internal
+  showMenuBar: false
+  maximize: true
+  tray: false
+  internalUrls: "^https://(web|replay)\\.fightcade\\.com/"
+  browserwindowOptions:
+    webPreferences:
+      javascript: true
+      plugins: false
+      nodeIntegration: false
+      contextIsolation: true
+      enableRemoteModule: false
+      webSecurity: true
+      preload: "{{ fightcade_app }}/lib/preload.js"
+      zoomFactor: 1
+fightcade_desktop_file: "{{ fightcade_home }}/.local/share/applications/coin-dojo-fcade.desktop"   # internal
+fightcade_mimeapps: "{{ fightcade_home }}/.config/mimeapps.list"   # internal
+# Extra Electron switches. None on the cabinet (the lobby draws on the V3D GPU, #92); the test VM has no 3D and sets
+# [--disable-gpu] in inventory/vm.yml.
+fightcade_electron_flags: []   # internal
+
+# --- Box64 (#92) ---------------------------------------------------------------------------------------------------
+# The fast flags only with hk_fightcade_box64_fast (determinism gate pending); the safe flags are Box64's defaults.
+fightcade_box64_fast_env:   # internal
+  BOX64_DYNAREC_STRONGMEM: 0
+  BOX64_DYNAREC_BIGBLOCK: 3
+  BOX64_DYNAREC_SAFEFLAGS: 0
+  BOX64_DYNAREC_FASTNAN: 1
+  BOX64_DYNAREC_FASTROUND: 1
+  BOX64_DYNAREC_CALLRET: 1
+  BOX64_DYNAREC_FORWARD: 1024
+# Base prefix recipe version: bump it to make every cabinet rebuild its base prefix on the next deploy.
+# 2 (#230): winebus "Map Controllers"=0 (see the sticks section below).
+fightcade_prefix_recipe: 2   # internal
+
+# --- the sticks in FBNeo (#230) ------------------------------------------------------------------------------------
+# How Wine sees them (probe on the cabinet, Coordinator 2026-11-18 21:39): Wine 10's winebus runs its SDL bus (Box64 wraps
+# the native arm64 libSDL2-2.0.so.0, "SDL main loop starting"); SDL reads the sticks' evdev nodes event1/event2, which
+# coindojo opens already (group input + the seat's uaccess ACL). hidraw0/1 stay root 0600 and that does not matter:
+# for a generic joystick Wine 10 keeps the SDL device and drops the hidraw one unless SDL is off
+# (dlls/winebus.sys/main.c is_hidraw_enabled + bus_main_thread). So no udev rule.
+# "Map Controllers"=0 (sdl_driver_init): the stick reaches DirectInput as the plain joystick, buttons in evdev order
+# (= the js index below), axes X/Y. With the default (1) an SDL_GAMECONTROLLERCONFIG in the session's environment
+# or SDL's own database would make it a remapped Xbox-style pad, and the map below would point at other buttons.
+# Set by files/hk-fightcade-prefix (recipe 2; the stamp says winebus-map=0); the RAM prefix copies it per launch.
+# FBNeo's input defaults (Fightcade FBNeo v0.2.97.44, FBNeo src/burner/gami.cpp GameInpDefault): a game with no
+# config/games/<rom>.ini takes, per player whose nPlayerDefaultControls[n] has low nibble 0x0F, the `input` lines of
+# szPlayerDefaultIni[n] (GameInputAutoIni; matched by the generic names "p1 up", "p1 fire 1", ..., so one file
+# covers every game). Inputs still undefined get FBNeo's keyboard/joystick guess. With bSaveInputs 1 FBNeo writes
+# config/games/<rom>.ini on game exit (the F5 map included), and that file wins from then on.
+# Persistence: the global ini is rebuilt from the base at every launch (#92), so the two keys below always point
+# at the presets; config/games/ and config/presets/ live on the data dir and are never touched by the launcher. The
+# role writes the presets only when absent (force: false): the maintainer's later F5 per-game maps and any hand edit of a
+# preset stay. To go back to the shipped map: delete the preset (next deploy) or the game's config/games/<rom>.ini.
+fightcade_presets_dir: "{{ fightcade_data }}/fbneo/config/presets"   # internal
+fightcade_fbneo_version: "0x029744"   # internal: nBurnVer of v0.2.97.44 (exe FileVersion 0,2,97,44; a preset's `version` must be <= it)
+# Panel button -> the stick's button number (js index = evdev BTN_TRIGGER + n = DirectInput button n with Map
+# Controllers 0), measured on the cabinet: skills/settings/trophiesd.py:38, ansible/roles/power/files/stickmouse.py:53.
+fightcade_stick_buttons: { LP: 4, MP: 0, HP: 5, LK: 3, MK: 2, HK: 1, SELECT: 8, START: 9 }   # internal
+# FBNeo input (generic name, per player) -> panel button. Fire 1-3 = punches on the top row, 4-6 = kicks below
+# (CPS-1/2/3 fighters: Weak/Medium/Strong Punch then Kick; Neo Geo A B C on top, D on LK); SELECT = coin.
+fightcade_preset_buttons:   # internal
+  - [fire 1, LP]
+  - [fire 2, MP]
+  - [fire 3, HP]
+  - [fire 4, LK]
+  - [fire 5, MK]
+  - [fire 6, HK]
+  - [coin, SELECT]
+  - [start, START]
+# Player n reads DirectInput joystick n-1 (the stick on xhci-hcd.0 = event1 = js0 is P1, like everywhere else).
+fightcade_preset_players: [1, 2]   # internal

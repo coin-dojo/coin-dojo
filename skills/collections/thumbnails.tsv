@@ -1,0 +1,6 @@
+# libretro-thumbnails pins for `collgen.py metadata --thumbnails` (fallback, off by default).
+# system<TAB>repo under github.com/libretro-thumbnails<TAB>commit sha (HEAD on 2026-11-14).
+# Only these commits are ever fetched; bump a sha deliberately, never use a branch name.
+nes	Nintendo_-_Nintendo_Entertainment_System	29607117d7dd3a0d42273dc5599ad5982cf5eb91
+snes	Nintendo_-_Super_Nintendo_Entertainment_System	3298e21ecddfba90a589180f81ea242d2a90d7bb
+fbneo	FBNeo_-_Arcade_Games	701bce96b276cabee65970b57d8aa00926f692bc

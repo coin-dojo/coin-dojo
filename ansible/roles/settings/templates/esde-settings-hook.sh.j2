@@ -1,0 +1,73 @@
+#!/bin/sh
+# coin-dojo SETTINGS (#195, role settings): pressing A on SETTINGS on the carousel opens the SETTINGS app at once, no
+# one-entry list in between. Installed twice, as {{ settings_hook_file }} and the same name under scripts/game-end/.
+#
+# ES-DE 3.5.0 has no "system entered" event (skills/settings/SKILL.md "Opens directly"). system-select fires on every
+# carousel move, so it never launches anything. game-select fires when a gamelist is SHOWN (entering it) and on each
+# cursor stop inside one; the SETTINGS gamelist holds one entry, so its game-select means "SETTINGS was entered".
+# es_settings: CustomEventScripts + CustomEventScriptsBrowsing on, CustomEventScriptsBrowsingNonBlocking off
+# (hk_esde_settings, role cabinet_tweaks): ES-DE waits for this script, so it waits for the app as for a launch.
+#
+# Args from ES-DE: $1 game path, $2 name, $3 system name, $4 system full name (none on a fast scroll).
+# Runs on EVERY gamelist cursor stop and ES-DE waits for it: anything else returns at once (builtins only).
+# One copy: a lock dir with the pid of the hook that runs the app; a lock whose pid is gone is taken over.
+# game-end: when ES-DE itself launched the entry (A on the list), it saves lastplayed on return and fires game-select
+# again; the game-end copy leaves a mark so that one game-select (within 10 s) does not reopen the app.
+# Back to the carousel (#224): after the app, esde_return.py waits until the stick is released and quiet, flushes the
+# presses ES-DE queued while it waited (#220: they replayed into the SETTINGS list and reopened it) and sends exactly
+# one Back through a short-lived uinput keyboard; no stick/uinput = it logs and sends nothing (the one-entry list).
+# #225: `esde_return.py --hold &` before the app makes that keyboard early (cage opens it while SETTINGS runs) and hands
+# it to the plain run; it never sends a key. Missing/dead = the plain run makes its own, as in #224.
+# QUIT (#224): entering the QUIT TO MAIN MENU system runs its command at once (esde_entry.sh menu: ends ES-DE for the
+# boot menu; it refuses while a game runs). Its game-end copy never runs it.
+SYSTEM={{ settings_system_name | quote }}
+QUIT_SYSTEM={{ settings_quit_system | quote }}
+PYTHON={{ settings_python | quote }}
+APP={{ (settings_dir ~ '/settings_app.py') | quote }}
+RETURN={{ (settings_dir ~ '/esde_return.py') | quote }}
+BACK={{ settings_hook_back | bool | ternary('on', 'off') }}
+ENTRY={{ settings_entry | quote }}
+QUIT_SCRIPT={{ settings_quit_script | quote }}
+LOCK="${XDG_RUNTIME_DIR:-/tmp}/coin-dojo-settings-hook.lock"
+ENDED="${XDG_RUNTIME_DIR:-/tmp}/coin-dojo-settings-hook.ended"
+
+case "$3" in
+  "$SYSTEM") ;;
+  "$QUIT_SYSTEM")
+    case "$1" in *.hks) ;; *) exit 0 ;; esac
+    case "$0" in */game-end/*) exit 0 ;; esac
+    [ -f "$QUIT_SCRIPT" ] || exit 0
+    exec bash "$QUIT_SCRIPT" menu "$1" ;;
+  *) exit 0 ;;
+esac
+case "$1" in *.hks) ;; *) exit 0 ;; esac
+
+case "$0" in
+  */game-end/*) date +%s > "$ENDED"; exit 0 ;;
+esac
+
+if [ -f "$ENDED" ]; then
+  ended=$(cat "$ENDED" 2>/dev/null)
+  rm -f "$ENDED"
+  case "$ended" in ''|*[!0-9]*) ended=0 ;; esac
+  [ $(( $(date +%s) - ended )) -le 10 ] && exit 0
+fi
+[ -f "$ENTRY" ] || exit 0
+
+if ! mkdir "$LOCK" 2>/dev/null; then
+  pid=$(cat "$LOCK/pid" 2>/dev/null)
+  # no pid yet = another hook is between mkdir and its pid line: it wins
+  { [ -z "$pid" ] || kill -0 "$pid" 2>/dev/null; } && exit 0
+  rm -rf "$LOCK"
+  mkdir "$LOCK" 2>/dev/null || exit 0
+fi
+trap 'rm -rf "$LOCK"' EXIT
+trap 'exit 1' INT TERM HUP
+echo $$ > "$LOCK/pid"
+
+# The command ES-DE runs for the entry (es_systems <command>), on the entry file the carousel link points at.
+if [ "$BACK" = on ]; then "$PYTHON" "$RETURN" --hold & fi
+"$PYTHON" "$APP" "$ENTRY"
+# #224: then one Back to the carousel, no stale press (never in the background: the flush must land before ES-DE
+# resumes)
+if [ "$BACK" = on ]; then "$PYTHON" "$RETURN"; fi

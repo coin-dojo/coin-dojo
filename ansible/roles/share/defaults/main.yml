@@ -1,0 +1,43 @@
+# share (#266): the network folder. The ROM and BIOS folders on the home network over SMB (Samba from Debian's
+# archive) and the cabinet's name over mDNS (avahi): smb://<hostname>.local, \\<hostname>.local.
+# Lever: hk_share_enable (config/variables.d/share.yml). The hardening is fixed here and in templates/smb.conf.j2 and
+# checked by files/smbconf_check.py before the file is installed.
+share_enable: "{{ hk_share_enable }}"
+share_user: "{{ cabinet_user }}"
+share_group: "{{ cabinet_group }}"
+share_data_root: "{{ hk_data_root }}"
+# Exactly these two folders. Nothing else is shared: no home folders, no printers, no system paths.
+share_folders:   # internal: the two names are fixed; their paths are the levers hk_rom_root and hk_bios_root
+  - { name: roms, path: "{{ hk_rom_root }}", comment: "Games: one folder per system", veto: "{{ share_veto + share_roms_veto }}" }
+  - { name: bios, path: "{{ hk_bios_root }}", comment: "BIOS files", veto: "{{ share_veto + share_bios_veto }}" }
+
+# Debian 13 packages from the image's own apt sources (no third-party repo, no version pins: like every other apt
+# package the roles install, the image's Debian release fixes the version).
+share_packages: [samba, samba-vfs-modules, avahi-daemon]   # internal
+share_interfaces: [lo, eth0, wlan0]   # internal: Pi OS keeps the classic names; lo is needed by Samba's own tools
+# smb.conf itself allows loopback only, then includes share_hosts_file: files/hosts_allow.py writes it from the LIVE
+# subnets of the interfaces (+ fe80::/10) at every smbd start and on each NetworkManager change. Missing = loopback.
+share_hosts_base: [127.0.0.1, "::1"]   # internal
+share_hosts_file: /run/coin-dojo-share/hosts.conf   # internal
+# Names hidden and refused in the bios share (emulators read scripts/settings there); the global vetoes stay too.
+share_bios_veto: "{{ hk_share_bios_veto }}"
+share_roms_veto: "{{ hk_share_roms_veto }}"
+share_veto: [.DS_Store, Thumbs.db, desktop.ini]   # internal
+share_conf: /etc/samba/smb.conf   # internal
+share_libexec: /usr/local/lib/coin-dojo-share   # internal
+share_check: "{{ share_libexec }}/smbconf_check.py"   # internal
+share_hosts_script: "{{ share_libexec }}/hosts_allow.py"   # internal
+share_smbd_dropin: /etc/systemd/system/smbd.service.d/50-coin-dojo-hosts.conf   # internal
+share_state: /run/coindojo/default-login-state   # internal: #265 follow-up reads it (linux_default=, share_default=)
+share_sync: /usr/local/sbin/coin-dojo-share-sync   # internal
+share_units: [coin-dojo-share-sync.service, coin-dojo-share-sync.path]   # internal
+share_default_mark: /etc/coindojo/default-password   # internal: #265, coindojo-firstboot --default-login writes it
+share_marker: /etc/coindojo/share-default-login   # internal
+# #270 M2: the SETTINGS password helper (skills/settings/coin_dojo_set_password.py LOCK) holds this flock around its
+# Samba and Linux steps; the sync takes it before it reads anything. Same path on both sides (the test pins it).
+# Its directory is root's and not group/other-writable (never /run/lock or /tmp, #270 N2); /run/coindojo stays 0755
+# because the user's tty1 reads the default-login reminder there.
+share_password_lock: /run/coindojo/password.lock   # internal
+share_admin_rule: /etc/sudoers.d/coindojo-admin   # internal: #270 grant_sudo writes it (admin on)
+share_avahi_service: /etc/avahi/services/coin-dojo-smb.service   # internal
+share_nm_dispatcher: /etc/NetworkManager/dispatcher.d/60-coin-dojo-share   # internal

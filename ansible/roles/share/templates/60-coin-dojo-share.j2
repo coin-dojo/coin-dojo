@@ -1,0 +1,17 @@
+#!/bin/sh
+# {{ ansible_managed | default('Managed by Ansible') }}: coin-dojo network folder (#266, role share).
+# NetworkManager dispatcher, for the shared interfaces only:
+# - up / down / dhcp4-change / dhcp6-change: rewrite the allowed subnets ({{ share_hosts_file }}) from the live
+#   addresses and `smbcontrol smbd reload-config` if they changed. A reload cuts no copy in progress.
+# - up only: smbd binds (bind interfaces only = yes) to the addresses an interface has when smbd starts. If smbd is
+#   not yet listening on this interface's address (a Wi-Fi joined in SETTINGS, a cable plugged in later), restart
+#   it once. When it already listens there, nothing restarts.
+case "$1" in {{ share_interfaces | reject('equalto', 'lo') | join('|') }}) ;; *) exit 0 ;; esac
+case "$2" in up|down|dhcp4-change|dhcp6-change) ;; *) exit 0 ;; esac
+python3 {{ share_hosts_script }} --interfaces {{ share_interfaces | reject('equalto', 'lo') | join(' ') | quote }} --out {{ share_hosts_file }} --reload || true
+[ "$2" = up ] || exit 0
+systemctl is-active --quiet smbd.service || exit 0
+for a in $(ip -o -4 addr show dev "$1" scope global | awk '{print $4}' | cut -d/ -f1); do
+  ss -Hltn "sport = :445" | awk '{print $4}' | grep -qx "$a:445" || { systemctl try-restart smbd.service; exit 0; }
+done
+exit 0

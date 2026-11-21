@@ -1,0 +1,8 @@
+# PS1 on the panel (#57, the maintainer's one rule: panel = Xbox X Y RB / A B RT, PS standard Square Triangle R1 / Cross Circle R2).
+# Default would be Fierce = L1, Roundhouse = R1. Fierce (RetroPad L) -> R1 (11), Roundhouse (RetroPad R) -> R2 (13).
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "1"
+input_player1_btn_l = "11"
+input_player1_btn_r = "13"
+input_player2_btn_l = "11"
+input_player2_btn_r = "13"

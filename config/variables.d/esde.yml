@@ -1,0 +1,43 @@
+# Area: esde. The few ES-DE settings the deploy manages, one line each, in place. es_settings.xml as a whole is never
+# managed: it holds the ScreenScraper password. The attract-mode keys have their own variables (area attract).
+area: esde
+description: ES-DE settings the deploy sets (allowed keys only).
+variables:
+  hk_esde_settings:
+    type: map
+    fields:
+      CollectionSystemsCustom: {type: str}
+      CollectionSystemsAuto: {type: str}
+      StartupSystem: {type: str}
+      CollectionCustomGrouping: {type: str}
+      MenuColorScheme: {type: str}
+      FavoritesAddButton: {type: bool}
+      FavoritesStar: {type: bool}
+      FavoritesFirst: {type: bool}
+      CustomEventScripts: {type: bool}
+      CustomEventScriptsBrowsing: {type: bool}
+      CustomEventScriptsBrowsingNonBlocking: {type: bool}
+    default:
+      # Nested main screen (#38): MUST PLAY / GENRES / DECADES / SYSTEMS are virtual systems from custom_systems,
+      # so no custom collections are shown.
+      CollectionSystemsCustom: ""
+      # LAST PLAYED (ES-DE auto collection "recent", 50 games) on the main screen (#61).
+      CollectionSystemsAuto: recent
+      StartupSystem: must-play
+      CollectionCustomGrouping: never
+      # "Dark and red" menus match the theme's crimson palette (#43).
+      MenuColorScheme: darkred
+      # No favorites (the maintainer 2026-11-14: "just messes with UI", folders hold 100s of games).
+      FavoritesAddButton: false
+      FavoritesStar: false
+      FavoritesFirst: false
+      # SETTINGS opens directly (#195): ES-DE runs the role settings game-select script when a gamelist is shown,
+      # blocking (ES-DE waits for the app as for a launch). No other scripts exist, so nothing else changes.
+      CustomEventScripts: true
+      CustomEventScriptsBrowsing: true
+      CustomEventScriptsBrowsingNonBlocking: false
+    description: >-
+      ES-DE settings written into es_settings.xml, one line per key, in place. Only the keys listed here are accepted
+      (their type is checked); anything else FAILs `make config-check`, so a stray name can never reach the file that
+      holds the ScreenScraper password. Set one key and keep the rest (`hk_esde_settings: {StartupSystem: favorites}`).
+    consumers: [ansible/roles/cabinet_tweaks]

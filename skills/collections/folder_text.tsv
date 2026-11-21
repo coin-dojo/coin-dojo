@@ -1,0 +1,88 @@
+# Folder blurbs for the nested main screen (collgen.py nested --folder-text): the community example (#190).
+# A private checkout keeps its own blurbs in personal/skills/collections/folder_text.tsv, which wins.
+# virtual<TAB>folder<TAB>text   (the game count is appended automatically)
+genres	beat-em-up	Walk right, punch everything. Side-scrolling brawlers built for two players on one panel: grab a friend, share the turkey, clear the stage.
+genres	fighters	One-on-one versus games, the reason this cabinet has six buttons. Top row punches, bottom row kicks, and every quarter-circle motion lands on a real stick.
+genres	maze	Single-screen chase games from the golden age. Learn the patterns, clear the board, push your score one more level.
+genres	platformers	Run, jump, and time it right. Tight d-pad action that plays even better on an arcade stick.
+genres	puzzle	Falling blocks, matching gems, and chain reactions. Quick to learn, hard to put down, and brutal head-to-head.
+genres	racing	Racers that steer fine on a digital stick: top-down mayhem, arcade sprint, and no analog wheel required.
+genres	run-and-gun	Never stop shooting. Side-scrolling action where you move and fire at the same time, best with a second player.
+genres	shmups	Shoot 'em ups: vertical and horizontal shooters, from the 8-bit classics to Cave's bullet curtains. Learn the patterns, hunt the high score.
+genres	sports	Arcade sports with big moves and short rules: two-on-two dunks, flying discs, and anything you can settle in one credit.
+genres	twin-stick	One player, two sticks: Player 1 stick moves, Player 2 stick aims and fires. Each game has its own control setup.
+genres	party	Games for a crowd: quick rounds, simple controls, lots of shouting.
+genres	achievements	Games with a RetroAchievements set, matched to your own ROMs. The first line of each game shows how many you have unlocked, and whether in hardcore.
+decades	1980-84	The golden age: single-screen classics, pattern play, and three lives for a quarter.
+decades	1985-89	Scrolling stages, power-ups, and the first big sprites: the arcade grows up and the home consoles catch on.
+decades	1990-94	The peak: one-on-one fighters change everything, 16-bit consoles battle, and every arcade has a row of fighters.
+decades	1995-99	Polygons arrive, 2D gets its most beautiful sprites, and the CD consoles take over the living room.
+decades	2000-04	The last great arcade era: Dreamcast, NAOMI, Cave's bullet hell, and the final 2D masterpieces.
+systems	cps1	A 1988 arcade board: side-scrolling brawlers, the first big one-on-one fighters, and an era-defining library.
+systems	cps2	The 1993 successor board: fighters, versus crossovers, and some of the best beat 'em ups ever made.
+systems	cps3	The last board of the line: 2D fighters and some of the finest sprite work ever made.
+systems	dreamcast	Sega's final console (1998), arcade-perfect for its time: versus fighters, Soulcalibur, Ikaruga, and the NAOMI ports.
+systems	fbneo	The wider arcade library through FinalBurn Neo: Konami, Taito, Irem, Toaplan, Cave, Data East, and more.
+systems	genesis	Sega's 16-bit console (1988): blast processing, Streets of Rage, Gunstar Heroes, and a mean six-button pad.
+systems	n64	Nintendo's 1996 console, picked for the games that play well without an analog stick.
+systems	neogeo	SNK's arcade-and-home system (1990): King of Fighters, Metal Slug, Samurai Shodown, and a four-button layout.
+systems	nes	Nintendo's 8-bit console (1983): the platformers, shooters, and action games that started it all.
+systems	pcengine	NEC's little powerhouse (1987), also known as the TurboGrafx-16: the shooter console, with CD-ROM extras.
+systems	psx	Sony's first PlayStation (1994): the 2D fighters and shooters that ignore the analog sticks.
+systems	saturn	Sega's 1994 console, a 2D monster: arcade-perfect fighters and shooters that never left Japan.
+systems	segacd	The Genesis CD add-on (1991): CD soundtracks, bigger games, and Sonic CD.
+systems	snes	Nintendo's 16-bit console (1990): arcade fighter ports, Contra III, and the platformers everyone remembers.
+decades	1970s	Where it all began: Space Invaders, Asteroids, Galaxian, and the first home consoles. One stick, one button, one more try.
+systems	atari2600	Atari's 1977 console that put arcade games in the living room: one stick, one button, and Space Invaders, Pitfall!, River Raid and Yars' Revenge.
+series	mega-man	The blue bomber: run, jump, shoot, and steal the boss's weapon, from the NES originals to the X series.
+series	toaplan	The Toaplan shooters, the studio that wrote the book on vertical shmups before Cave took over: Tiger-Heli, Twin Cobra, Truxton, Batsugun.
+series	cave	Cave's bullet curtains: Mushihime-Sama, Espgaluda, Ketsui, Deathsmiles and the other manic shooters.
+series	king-of-fighters	SNK's team-based crossover fighter, one chapter per year from '94 to 2003, played on the Neo Geo four-button layout.
+series	gradius	Konami's shooter family: Gradius and its power-up bar, Salamander and Life Force, and the Parodius spoofs.
+series	fatal-fury	SNK's duelling fighter series, from Terry Bogard's first tournament to Garou: Mark of the Wolves.
+series	bomberman	Place bombs, trap your friends, and try to stay out of the blast: Hudson's maze-battle series.
+series	tmnt	Konami's turtles in the arcade brawler, the SNES sequel, and the fighting games that followed.
+series	double-dragon	The original street brawler and its sequels: Technos Japan's fists, elbows, and two-player punch-ups.
+series	tetris	Falling blocks in every flavour: the arcade original, the Grand Master version, and the N64 spin-offs.
+series	wonder-boy	Westone's platform and action-adventure family, from the arcade Wonder Boy to Monster World.
+series	194x	The vertical shooter line: 1941, 1942, 1943, 1944 and 19XX, one plane and a lot of bullets.
+series	castlevania	Konami's whip-and-torch vampire hunt, from the NES trilogy to Super Castlevania IV.
+series	contra	Konami's run and gun: two commandos, one spread gun, and no time to reload.
+series	strikers	Psikyo's Strikers 1945 and Video System's Aero Fighters: warplane shooters with big personality.
+series	donpachi	Cave's founding shooter and its sequels: DonPachi, DoDonPachi and the later Dai-Fukkatsu and SaiDaiOuJou versions.
+series	donkey-kong	The ape that started Nintendo's arcade era, and the Rareware sequels on the SNES.
+series	puyo	Falling-blob and bubble-popping puzzle games, best head to head: Puyo Puyo, Puzzle Bobble and Mean Bean Machine.
+series	r-type	Irem's horizontal shooter with the charge beam and the detachable Force pod.
+series	galaga	Namco's alien-swarm shooters: Galaga and its sequels, plus Galaxian and Gaplus.
+series	pac-man	The yellow maze-muncher and his friends, from Pac-Man to Ms. Pac-Man and Pac-Land.
+series	shinobi	Sega's ninja action series, from the arcade original to The Revenge of Shinobi and Shinobi III.
+series	sonic	Sega's blue hedgehog, from Genesis speed runs to the arcade SegaSonic.
+series	metal-slug	SNK's hand-drawn run and gun on the Neo Geo: tanks, prisoners to rescue, and enormous explosions.
+series	samurai-shodown	SNK's weapon-based fighting series: slow, deadly, and one clean hit can end a round.
+series	ghosts-n-goblins	Brutal armoured-knight platformers: Ghosts'n Goblins, Ghouls'n Ghosts and Super Ghouls'n Ghosts.
+series	ninja-gaiden	Tecmo's ninja action games, from the arcade brawler to the NES trilogy.
+series	bubble-bobble	Taito's bubble-blowing dragons and their rainbow-making cousins, with a two-player mode made for the cabinet.
+series	golden-axe	Sega's sword-and-sorcery brawler series: pick a hero and fight your way to Death Adder.
+series	mario	Nintendo's plumber outside the NES: Mario Bros. in the arcade, plus Mario Kart and Super Mario World on the SNES.
+series	mortal-kombat	Midway's blood-soaked fighting series, with the digitised fighters and fatalities that caused a stir.
+series	star-soldier	Hudson's scrolling shooter series for the PC Engine: Soldier Blade, Super Star Soldier and Fantasy Star Soldier.
+series	art-of-fighting	SNK's fighting series with the zooming camera and spirit gauge, from the first game to the Path of the Warrior.
+series	streets-of-rage	Sega's Genesis beat 'em up trilogy, famous for its soundtrack and its two-player brawling.
+series	marvel	Marvel fighters and brawlers, from Children of the Atom to the versus crossovers, plus Konami's X-Men and The Punisher.
+series	splatterhouse	Namco's horror brawler: Rick, the Terror Mask, and a mansion full of things to hit with a two-by-four.
+series	lode-runner	Dig holes, trap the guards and grab the gold: Irem's arcade Lode Runners and Psikyo's head-to-head Dig Fight.
+series	space-invaders	Taito's 1978 alien march that started it all, plus the DX and '95 remakes.
+series	star-wars	Atari's vector cockpit run on the Death Star, plus the Super Star Wars games on the SNES.
+series	thunder-force	Technosoft's shooter series: pick your weapon, keep it, and fly through Thunder Force III and Lightening Force.
+series	fantasy-zone	Sega's pastel shooter: fly Opa-Opa, shop for weapons, and break the enemy bases.
+series	sengoku	SNK's time-warp brawler: modern-day fighters against ghost samurai, on the Neo Geo.
+series	gauntlet	Atari's four-player dungeon crawl: Warrior, Valkyrie, Wizard and Elf, and the Elf needs food badly.
+series	rolling-thunder	Namco's spy run and gun: duck behind doors, count your bullets, and take down Geldra.
+series	phantasy-star	Sega's science-fantasy role-playing epic, Phantasy Star II to IV on the Genesis.
+series	road-rash	EA's motorbike racing with fists and chains: win the race, keep the bike, kick the cops off theirs.
+series	micro-machines	Codemasters' tiny-car racing across kitchen tables and bathtubs, best with friends on one screen.
+series	crash-bandicoot	Naughty Dog's PlayStation platformer trilogy: spin, jump and break every crate.
+series	dragon-ball	Goku and the Z fighters in Banpresto's arcade Dragon Ball Z games and Hyper Dimension on the SNES.
+series	dig-dug	Namco's underground pump-and-pop maze game and its island-cracking sequel.
+series	punch-out	Nintendo's boxing from behind the boxer: read the tells, dodge, then hit back.
+series	king-of-the-monsters	SNK's giant-monster wrestling: stomp the city, then pin your rival in it.

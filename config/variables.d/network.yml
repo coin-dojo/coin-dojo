@@ -1,0 +1,36 @@
+# Area: network. Wi-Fi tuning for online play (#213): power save, reconnects without sudo, the net-check pings.
+area: network
+description: Wi-Fi power save, the polkit rule that lets the cabinet user reconnect, and the host net-check pings.
+variables:
+  hk_wifi_powersave:
+    type: bool
+    default: false
+    description: >-
+      Wi-Fi power save on the cabinet. false (or `off`) = OFF for every Wi-Fi network, also ones joined later in the
+      SETTINGS app: a NetworkManager drop-in (/etc/NetworkManager/conf.d/90-coin-dojo-wifi.conf, `wifi.powersave = 2`).
+      Power save made pings jitter and drop (2026-11-18, 60 s to a public host: 7.5 % loss, mdev 29.8 ms with it on;
+      0 % and 8.1 ms off), and rollback netcode turns that into stutter. The cabinet runs on mains power, so off costs
+      nothing. true (or `on`) removes the drop-in: back to the NetworkManager/driver default. A change applies at the
+      next reconnect of each Wi-Fi network; the deploy says when one still has power save on.
+    consumers: [ansible/roles/cabinet_tweaks]
+  hk_wifi_reconnect_polkit:
+    type: bool
+    default: true
+    description: >-
+      Let the cabinet user run NetworkManager network-control from any session, SSH included, without sudo: one
+      polkit rule (/etc/polkit-1/rules.d/51-coin-dojo-net.rules), that one action only. Needed to apply a Wi-Fi change
+      such as the power save above over SSH (a reconnect). Its real scope: bring any SAVED connection up or down (also
+      another saved network), disconnect a device or set it unmanaged (over Wi-Fi SSH that locks you out until you
+      fix it at the cabinet or reboot), and change a device at runtime (IP, DNS, routes; not saved). It does NOT
+      create, change or save connections. The SETTINGS app's own rule (role settings) covers only the cabinet's seat.
+      false removes the rule.
+    consumers: [ansible/roles/cabinet_tweaks]
+  hk_net_check_host:
+    type: str
+    default: 1.1.1.1
+    pattern: "[A-Za-z0-9.:][A-Za-z0-9.:-]{0,252}"   # never starts with - (ping would read an option)
+    description: >-
+      Public host that `make net-check` pings for 60 s next to the cabinet's gateway (avg/max/mdev/loss). An anycast
+      address is close to everyone; pick another if yours filters ICMP.
+    example: 9.9.9.9
+    consumers: [mk/cabinet.mk, tools/net-check.sh]

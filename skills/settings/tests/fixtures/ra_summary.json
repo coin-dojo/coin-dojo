@@ -1,0 +1,165 @@
+{
+ "User": "ArcadePlayer",
+ "MemberSince": "2024-01-02 10:00:00",
+ "RichPresenceMsg": "Playing Ikaruga - Chapter 2",
+ "TotalPoints": 1840,
+ "TotalSoftcorePoints": 615,
+ "TotalTruePoints": 5120,
+ "Rank": 48213,
+ "TotalRanked": 91234,
+ "UserPic": "/UserPic/ArcadePlayer.png",
+ "Status": "Online",
+ "RecentlyPlayed": [
+  {
+   "GameID": "10",
+   "ConsoleName": "Dreamcast",
+   "Title": "Ikaruga",
+   "ImageIcon": "/Images/000010.png",
+   "LastPlayed": "2026-11-17 05:30:00",
+   "AchievementsTotal": 32
+  },
+  {
+   "GameID": "11",
+   "ConsoleName": "PlayStation",
+   "Title": "Crash Bandicoot",
+   "ImageIcon": "/Images/000011.png",
+   "LastPlayed": "2026-11-17 05:05:00",
+   "AchievementsTotal": 47
+  },
+  {
+   "GameID": "12",
+   "ConsoleName": "Arcade",
+   "Title": "Metal Slug X",
+   "ImageIcon": "/Images/000012.png",
+   "LastPlayed": "2026-11-17 04:40:00",
+   "AchievementsTotal": 28
+  },
+  {
+   "GameID": "13",
+   "ConsoleName": "Genesis/Mega Drive",
+   "Title": "Sonic the Hedgehog",
+   "ImageIcon": "/Images/000013.png",
+   "LastPlayed": "2026-11-15 20:00:00",
+   "AchievementsTotal": 26
+  },
+  {
+   "GameID": "14",
+   "ConsoleName": "SNES/Super Famicom",
+   "Title": "Super Mario World",
+   "ImageIcon": "/Images/000014.png",
+   "LastPlayed": "2026-11-12 18:00:00",
+   "AchievementsTotal": 96
+  },
+  {
+   "GameID": "15",
+   "ConsoleName": "Nintendo 64",
+   "Title": "Star Fox 64",
+   "ImageIcon": "/Images/000015.png",
+   "LastPlayed": "2026-11-02 18:00:00",
+   "AchievementsTotal": 0
+  }
+ ],
+ "Awarded": {
+  "10": {
+   "NumPossibleAchievements": 32,
+   "NumAchieved": 5,
+   "NumAchievedHardcore": 0
+  },
+  "11": {
+   "NumPossibleAchievements": 47,
+   "NumAchieved": 12,
+   "NumAchievedHardcore": 0
+  },
+  "12": {
+   "NumPossibleAchievements": 28,
+   "NumAchieved": 3,
+   "NumAchievedHardcore": 0
+  },
+  "13": {
+   "NumPossibleAchievements": 26,
+   "NumAchieved": 26,
+   "NumAchievedHardcore": 26
+  },
+  "14": {
+   "NumPossibleAchievements": 96,
+   "NumAchieved": 40,
+   "NumAchievedHardcore": 40
+  }
+ },
+ "RecentAchievements": {
+  "10": {
+   "1001": {
+    "ID": 1001,
+    "GameID": 10,
+    "GameTitle": "Ikaruga",
+    "Title": "Polarity Shift",
+    "Description": "Absorb 100 bullets in one chapter",
+    "Points": 5,
+    "BadgeName": "100001",
+    "DateAwarded": "2026-11-17 05:29:00",
+    "HardcoreAchieved": 0
+   },
+   "1002": {
+    "ID": 1002,
+    "GameID": 10,
+    "GameTitle": "Ikaruga",
+    "Title": "Chapter 1 Clear",
+    "Description": "Clear chapter 1",
+    "Points": 10,
+    "BadgeName": "100002",
+    "DateAwarded": "2026-11-17 05:20:00",
+    "HardcoreAchieved": 0
+   }
+  },
+  "11": {
+   "1101": {
+    "ID": 1101,
+    "GameID": 11,
+    "GameTitle": "Crash Bandicoot",
+    "Title": "Boulder Dash",
+    "Description": "Outrun the boulder",
+    "Points": 10,
+    "BadgeName": "100003",
+    "DateAwarded": "2026-11-17 05:01:00",
+    "HardcoreAchieved": 0
+   },
+   "1102": {
+    "ID": 1102,
+    "GameID": 11,
+    "GameTitle": "Crash Bandicoot",
+    "Title": "Gem Collector",
+    "Description": "Collect a clear gem",
+    "Points": 25,
+    "BadgeName": "100004",
+    "DateAwarded": "2026-11-17 04:55:00",
+    "HardcoreAchieved": 0
+   }
+  },
+  "12": {
+   "1201": {
+    "ID": 1201,
+    "GameID": 12,
+    "GameTitle": "Metal Slug X",
+    "Title": "Mission 1 Complete",
+    "Description": "Finish mission 1",
+    "Points": 5,
+    "BadgeName": "100005",
+    "DateAwarded": "2026-11-17 04:38:00",
+    "HardcoreAchieved": 0
+   }
+  },
+  "13": {
+   "1301": {
+    "ID": 1301,
+    "GameID": 13,
+    "GameTitle": "Sonic the Hedgehog",
+    "Title": "Chaos Emerald Master",
+    "Description": "Collect all six Chaos Emeralds",
+    "Points": 50,
+    "BadgeName": "100006",
+    "DateAwarded": "2026-11-15 19:50:00",
+    "HardcoreAchieved": 1
+   }
+  }
+ }
+}

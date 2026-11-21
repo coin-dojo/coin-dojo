@@ -1,0 +1,16 @@
+# {{ ansible_managed | default('Managed by Ansible') }}: role share (#266).
+# At boot after the first-boot config (it may set a new password), and whenever /etc/shadow changes
+# (coin-dojo-share-sync.path): drop the network folder's default login once the Linux password is no longer the default.
+[Unit]
+Description=coin-dojo network folder: keep the default login in step with the Linux password
+After=local-fs.target coindojo-firstboot.service
+Before=smbd.service
+# #270 L6: every passwd/chpasswd rewrites /etc/shadow; a burst must never hit the start limit and stop the sync
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart={{ share_sync }}
+
+[Install]
+WantedBy=multi-user.target

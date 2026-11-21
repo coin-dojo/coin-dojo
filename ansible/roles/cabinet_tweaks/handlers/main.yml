@@ -1,0 +1,17 @@
+# Reboot is never automatic: a person may be playing. Flag it and say so.
+- name: cabinet reboot required
+  ansible.builtin.set_fact:
+    cabinet_reboot_required: true
+
+- name: print reboot required
+  ansible.builtin.debug:
+    msg: "REBOOT REQUIRED on {{ inventory_hostname }} (new kernel in {{ cabinet_boot_config }}). Not rebooting automatically."
+
+# #213: re-reads conf.d; drops no link (a connection takes the new default at its next activation). Not in an image
+# build (#244): no NetworkManager runs there; it reads the drop-in when it starts at the first boot.
+- name: reload networkmanager conf
+  ansible.builtin.command:
+    cmd: nmcli general reload conf
+  become: true
+  changed_when: true
+  when: not coin_dojo_image | default(false) | bool

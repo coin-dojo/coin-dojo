@@ -1,0 +1,62 @@
+Coin Dojo
+=========
+
+An open-source toolkit that turns your own arcade cabinet into a custom
+ES-DE / RetroArch emulation setup. It ships the METHOD, not the content.
+
+
+SHIP-NO-ARTIFACTS PRINCIPLE
+---------------------------
+This project deliberately ships ONLY automation and instructions. It does NOT
+include, and will never include:
+
+  - no Pi image (.img) or flashable OS image
+  - no launcher or emulator binaries
+  - no ROMs or game files
+  - no BIOS or firmware
+  - no game artwork, box art, character art, logos, marquees, or bezels
+
+Users supply their own stock backup and their own legally-owned game files.
+This is both the legal boundary and the design north star.
+
+
+TRADEMARKS
+----------
+Game titles, company names, characters, logos and artwork named anywhere in this
+project are trademarks and/or copyrights of their respective owners. This
+project is unofficial, unaffiliated, and not endorsed by or associated with
+any game publisher, with Iconic Arcade, with Raspberry Pi Ltd, or with
+Fightcade. Their names appear only to say what hardware or software this
+project works with. No affiliation is claimed or implied.
+
+Raspberry Pi is a trademark of Raspberry Pi Ltd.
+
+Any original art distributed with this project (see LICENSE-art) reproduces no
+third-party copyrighted artwork; it is original work.
+
+
+LICENSES AT A GLANCE
+--------------------
+  - Code (scripts, tooling, configs, theme markup) ...... MIT          (LICENSE)
+  - Original art + theme assets + docs ................. CC BY-SA 4.0  (LICENSE-art)
+  - Bundled fonts ...................................... each font's own license (OFL, etc.)
+
+THIRD-PARTY SOFTWARE (installed from upstream, NOT redistributed here)
+---------------------------------------------------------------------
+The build INSTALLS third-party software from its official sources on the
+user's own machine; each component remains under its own license and is not
+vendored or redistributed by this project. The full list (component, license,
+how it reaches the card, obligations) is THIRD_PARTY.md. In short:
+
+  - RetroArch ......... GPLv3
+  - libretro cores .... GPLv2, MPL-2.0, and four NON-COMMERCIAL licenses
+                        (FBNeo, MAME 2003-Plus, Snes9x, Genesis Plus GX)
+  - ES-DE ............. MIT
+  - Box64 ............. MIT;  Wine: LGPL;  Electron: MIT + Chromium licenses
+  - Fightcade ......... proprietary; downloaded by the user, never shared
+  - CRT shaders ....... libretro/glsl-shaders, their own licenses
+
+Because of the non-commercial components, a cabinet set up with this project
+must never be sold, rented out, run for paid play, or bundled commercially.
+
+Legal background in plain language (not legal advice): docs/LEGAL.md.

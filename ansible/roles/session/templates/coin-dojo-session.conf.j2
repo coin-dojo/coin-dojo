@@ -1,0 +1,19 @@
+# Managed by coin-dojo ansible (role session, #209). Sourced by coin-dojo-session,
+# coin-dojo-cleanup and coin-dojo-session-stop (bash). Change the role defaults, not this file.
+HK_RUN_DIR={{ session_run_dir | quote }}
+HK_LOG={{ session_log | quote }}
+HK_BOOTMENU_PY={{ session_bootmenu_py | quote }}
+HK_BOOTMENU_APP={{ session_bootmenu_app | quote }}
+HK_COUNTDOWN={{ session_countdown | int }}
+HK_ESDE=({% for w in session_esde_argv %}{{ w | quote }}{{ ' ' if not loop.last else '' }}{% endfor %})
+HK_FIGHTCADE={{ session_fightcade_bin | quote }}
+HK_FIGHTCADE_UNIT={{ session_fightcade_unit | quote }}
+HK_WINESERVER=({% for w in session_wineserver %}{{ w | quote }}{{ ' ' if not loop.last else '' }}{% endfor %})
+HK_CLEANUP={{ session_cleanup_bin | quote }}
+HK_CLEANUP_NAMES=({% for w in session_cleanup_names %}{{ w | quote }}{{ ' ' if not loop.last else '' }}{% endfor %})
+HK_CLEANUP_PATTERNS=({% for w in session_cleanup_patterns %}{{ w | quote }}{{ ' ' if not loop.last else '' }}{% endfor %})
+HK_KILL_GRACE={{ session_kill_grace | int }}
+HK_STOP_GRACE={{ session_stop_grace | int }}
+HK_BACKOFF_N={{ session_backoff_n | int }}
+HK_BACKOFF_WINDOW={{ session_backoff_window | int }}
+HK_BACKOFF_SLEEP={{ session_backoff_sleep | int }}

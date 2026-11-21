@@ -1,0 +1,13 @@
+# Area: edition. Which build this checkout makes: personal (with personal/**) or community (without).
+area: edition
+description: personal or community edition.
+variables:
+  hk_edition:
+    type: enum
+    allowed: [personal, community]
+    default: community
+    description: >-
+      `community` = nothing under personal/** (no copyrighted art): what a contributor builds. `personal` = also the
+      private overlay (personal/themes). mk/flags.mk reads it from your local file (config/local.yml, else
+      personal/config/local.yml) to pick EDITION before anything else runs; `make EDITION=x` still wins.
+    consumers: [mk/flags.mk]

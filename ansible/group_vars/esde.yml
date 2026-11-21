@@ -1,0 +1,57 @@
+# ES-DE deploy paths (group `esde` = `pios` + `vm`, inventory/hosts.yml; tickets #89, #120). Shared by the esde_* roles
+# (esde_common, esde_theme, esde_collections, esde_verify). Every path is a var so the local
+# integration test (tests/test_esde_local.py) can point the same roles at a throwaway tree.
+esde_user_home: "{{ hk_cabinet_home }}"
+esde_home: "{{ esde_user_home }}/ES-DE"
+esde_gamelists: "{{ esde_home }}/gamelists"
+esde_custom_systems: "{{ esde_home }}/custom_systems"
+esde_log: "{{ esde_home }}/logs/es_log.txt"
+esde_theme_name: coin-dojo
+esde_theme_dir: "{{ esde_home }}/themes/{{ esde_theme_name }}"
+# Backups of everything a deploy is about to change: <root>/<stamp>-<what>/ (the maintainer's rule, as the hand scripts did).
+esde_backup_root: "{{ esde_home }}/themes/_backups"
+
+# The collections workspace on the cabinet (tools, picks, dat, folder art, nested_out).
+coin_dojo_dir: /data/coin-dojo
+esde_nested_out: "{{ coin_dojo_dir }}/nested_out"
+esde_nested_root: /data/nested          # -> nested_out/roms_nested; es_systems.xml <path> points here
+esde_rom_root: /data/roms
+esde_media_root: /data/media
+esde_python: python3
+
+# The generated (virtual) systems (esde_virtual_systems) are not typed here: hk_virtual_systems in
+# config/variables.d/collections.yml is the one source (#94); the rendered config sets it for the play.
+
+# Game guard: no cabinet write while one of these runs (RetroArch and flycast rewrite their files and
+# ES-DE's gamelists on exit; killing ES-DE would end the game). pgrep -x NAME, then pgrep -f PATTERN.
+esde_game_procs: [retroarch, flycast]
+esde_game_patterns: ["retroarch-1.22/retroarc[h]"]
+# Fails closed: without pgrep the guard reports "NO PGREP" and the deploy stops.
+esde_pgrep: pgrep
+# The session loop (#209) runs ES-DE or Fightcade, one at a time. Fightcade mode counts as a running game (#204 v2):
+# no ES-DE restart and no deploy while <esde_session_dir>/current-mode says fightcade.
+esde_session_dir: "{{ coin_dojo_run_dir }}"
+esde_session_cur: "{{ esde_session_dir ~ '/current-mode' }}"
+esde_session_pidfile: "{{ esde_session_dir ~ '/session.pid' }}"
+# Shell test, true only while a live coin-dojo-session owns the state: the pid in session.pid runs and is
+# coin-dojo-session (a stale current-mode left by a killed session counts as no session). Linux /proc.
+esde_session_live: >-
+  grep -qsxE "[0-9]+" {{ esde_session_pidfile | quote }} &&
+  xargs -I{} grep -qs coin-dojo-session /proc/{}/cmdline < {{ esde_session_pidfile | quote }}
+
+# ES-DE restart (handler `restart es-de`, once at the end, only when something ES-DE reads changed).
+# ES-DE runs as AppRun (AppImage) inside `exec cage`; tty1 autologin starts it again when it dies.
+# -9 on purpose: ES-DE must not save its in-memory gamelists/es_settings over what was just deployed.
+esde_kill_cmd: pkill -9 -x AppRun
+# Before the kill the handler asks the session loop for ES-DE again (next-mode=esde, #204 v2); a kill alone also
+# restarts it, the request also wins over the loop's crash back-off. A no-op without a session (no run dir).
+esde_request_cmd: "[ -d {{ esde_session_dir | quote }} ] && printf 'esde\\n' > {{ (esde_session_dir ~ '/next-mode') | quote }}"
+esde_up_cmd: pgrep -x AppRun
+esde_getty_unit: getty@tty1
+esde_restart_settle: 5        # seconds after the kill before polling for AppRun
+esde_restart_retries: 18      # x 5 s: how long ES-DE may take to come back
+esde_restart_delay: 5
+# Seconds to let ES-DE load the systems before scanning its log (esde-restart waited 25 s).
+esde_log_settle: 20
+# Error lines that are known and harmless (regexes on the line without its timestamp).
+esde_log_ignore: []

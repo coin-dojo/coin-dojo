@@ -1,0 +1,2 @@
+# Never commit the built binary or its records (ship no artifacts)
+out/

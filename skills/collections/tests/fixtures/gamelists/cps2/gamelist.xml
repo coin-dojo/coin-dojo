@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<alternativeEmulator>
+	<label>FinalBurn Neo</label>
+</alternativeEmulator>
+<gameList>
+	<game>
+		<path>./19xx.zip</path>
+		<name>19XX : The War Against Destiny</name>
+		<releasedate>19960101T000000</releasedate>
+		<genre>Shoot'em Up</genre>
+	</game>
+	<game>
+		<path>./ssf2t.zip</path>
+		<name>Super Avenue Fighter II Turbo</name>
+		<releasedate>19940101T000000</releasedate>
+		<genre>Fighting</genre>
+	</game>
+	<game>
+		<path>./mvsc.zip</path>
+		<name>Heroes Vs. Acme</name>
+		<releasedate>19980101T000000</releasedate>
+		<genre>Fighting</genre>
+	</game>
+</gameList>
