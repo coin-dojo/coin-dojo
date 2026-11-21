@@ -1,0 +1,18 @@
+# Genesis / Sega CD on the panel (#56, the maintainer OK'd with Eternal Champions 2026-11-14): top row LP MP HP = Sega X Y Z
+# (punches), bottom row LK MK HK = A B C (kicks). Core default sent LP to Genesis A (a kick). Player 2 = player 1.
+# Genesis Plus GX 6-button pad: A B C = RetroPad Y(1) B(0) A(8), X Y Z = L(10) X(9) R(11).
+# Deployed by ansible cabinet_tweaks (cabinet_remaps); remap_save_on_exit is off so RetroArch keeps it as is.
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "1"
+input_player1_btn_y = "10"
+input_player1_btn_x = "9"
+input_player1_btn_l = "11"
+input_player1_btn_b = "1"
+input_player1_btn_a = "0"
+input_player1_btn_r = "8"
+input_player2_btn_y = "10"
+input_player2_btn_x = "9"
+input_player2_btn_l = "11"
+input_player2_btn_b = "1"
+input_player2_btn_a = "0"
+input_player2_btn_r = "8"

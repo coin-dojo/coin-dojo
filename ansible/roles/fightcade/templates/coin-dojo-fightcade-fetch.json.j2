@@ -1,0 +1,32 @@
+{#- Managed by coin-dojo ansible (role fightcade, #267). The first-launch manifest: what files/hk-fightcade-fetch
+    downloads (the pins of build/fightcade/pins.json, through fightcade_archives) and the steps the role itself does in
+    deploy mode (unpack recipe + stamps, .exe modes, nativefier keys, lobby CSS/JS, FBNeo ini keys, base prefix).
+    Root-owned on the root fs; the engine refuses a manifest with a url that is not https. -#}
+{%- set archives = [] -%}
+{%- for a in fightcade_archives -%}
+{%-   set _ = archives.append({
+        'name': a.name, 'title': a.title | default(a.name), 'url': a.url, 'file': a.url | urlsplit('path') | basename,
+        'sha256': a.sha256, 'size': a.size | int, 'install_mib': a.install_mib | default(0) | int,
+        'dest': a.dest, 'strip': a.strip | int, 'links': a.links, 'dist': a.dist, 'patches': a.patches | default([]),
+        'stamp': fightcade_stamps[a.name]}) -%}
+{%- endfor -%}
+{{ {
+  'version': 1,
+  'install_dir': fightcade_dir,
+  'data_dir': fightcade_data,
+  'staging': fightcade_incoming,
+  'logs': fightcade_logs,
+  'conf': fightcade_conf,
+  'unpack': fightcade_libexec ~ '/hk-fightcade-unpack',
+  'prefix_cmd': fightcade_libexec ~ '/hk-fightcade-prefix',
+  'ini_module': fightcade_libexec ~ '/hk_fbneo_ini.py',
+  'margin_mib': fightcade_fetch_margin_mib | int,
+  'archives': archives,
+  'exe_dir': fightcade_dir ~ '/Fightcade/emulator',
+  'nativefier': {'path': fightcade_app ~ '/nativefier.json', 'keys': fightcade_nativefier_keys},
+  'files': [{'path': fightcade_inject_css, 'text': fightcade_css_text},
+            {'path': fightcade_inject_js, 'text': fightcade_js_text}],
+  'ini': {'dist': fightcade_ini_dist, 'base': fightcade_ini_base,
+          'overrides': lookup('ansible.builtin.template', 'fcadefbneo-coin-dojo.ini.j2')},
+  'prefix': {'path': fightcade_prefix, 'stamp': fightcade_prefix_stamp, 'mib': fightcade_prefix_mib | int}
+} | to_nice_json(sort_keys=true) }}

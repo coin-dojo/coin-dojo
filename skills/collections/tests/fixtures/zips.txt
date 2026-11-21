@@ -1,0 +1,8 @@
+pacman.zip
+galaga.zip
+sf2.zip
+sf2u.zip
+foo.zip
+foo2.zip
+bar.zip
+missing.zip

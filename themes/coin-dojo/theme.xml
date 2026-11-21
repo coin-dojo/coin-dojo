@@ -1,0 +1,579 @@
+<!--
+    COIN DOJO - ES-DE 3.x theme (v3 engine)
+    Original theme for a six-button arcade cabinet.
+    Ships NO copyrighted artwork. Code MIT, art CC BY-SA 4.0 (see LICENSE/README).
+
+    Layout note: geometry below is tuned for the primary 4:3 target
+    (1440x1080 pillarboxed). aspect-ratio-16-9.xml overrides what must move
+    for widescreen; aspect-ratio-4-3.xml carries font-size tuning. Colors come
+    from colors.xml (${...} tokens), which parse before this general config.
+-->
+<theme>
+    <include>./colors.xml</include>
+
+    <aspectRatio name="4:3">
+        <include>./aspect-ratio-4-3.xml</include>
+    </aspectRatio>
+    <aspectRatio name="16:9">
+        <include>./aspect-ratio-16-9.xml</include>
+    </aspectRatio>
+
+    <variables>
+        <!-- fonts (OFL, bundled under _inc/fonts) -->
+        <dispFont>./_inc/fonts/ArchivoBlack-Regular.ttf</dispFont>
+        <uiMed>./_inc/fonts/Rajdhani-Medium.ttf</uiMed>
+        <uiSemi>./_inc/fonts/Rajdhani-SemiBold.ttf</uiSemi>
+        <uiBold>./_inc/fonts/Rajdhani-Bold.ttf</uiBold>
+        <pixFont>./_inc/fonts/PressStart2P-Regular.ttf</pixFont>
+
+        <!-- original art (CC BY-SA 4.0).
+             Rasterized to PNG: ES-DE's lunasvg can't reliably draw the
+             radial gradients + fill/stop-opacity these use, which rendered
+             a black screen. PNGs always draw. SVG sources kept as the art
+             source of record. -->
+        <artBase>./_inc/art/base.png</artBase>
+        <artBg>./_inc/art/background.png</artBg>
+        <artDeck>./_inc/art/deck.png</artDeck>
+        <artLogo>./_inc/art/logo-wordmark.png</artLogo>
+        <artPanel>./_inc/art/panel.png</artPanel>
+        <artPanelRed>./_inc/art/panel-red.png</artPanelRed>
+        <artDot>./_inc/art/dot.png</artDot>
+        <ratingFilled>./_inc/art/rating-filled.png</ratingFilled>
+        <ratingEmpty>./_inc/art/rating-empty.png</ratingEmpty>
+
+        <!-- The eye glow (#105, #263): the file lives in _inc/art/backdrops next to the night backdrop; when it is
+             missing (hk_eye_glow.enabled false, or your own art folder) ES-DE only logs a debug line. -->
+        <eyeGlow>eye-glow</eyeGlow>
+    </variables>
+
+    <!-- ============================================================= -->
+    <!-- Shared chrome + the two primary views                         -->
+    <!-- ============================================================= -->
+    <variant name="all">
+
+        <!-- shared across system + gamelist -->
+        <view name="system, gamelist">
+            <image name="scanlineOverlay">
+                <pos>0 0</pos>
+                <size>1 1</size>
+                <tile>true</tile>
+                <path>./_inc/art/scanlines.png</path>
+                <zIndex>40</zIndex>
+            </image>
+            <!-- solid non-black base: insurance so nothing is ever pure
+                 black even if an image above fails to load -->
+            <image name="baseFill">
+                <pos>0 0</pos>
+                <size>1 1</size>
+                <tile>true</tile>
+                <path>${artBase}</path>
+                <color>${baseColor}</color>
+                <zIndex>0</zIndex>
+            </image>
+            <image name="background">
+                <pos>0 0</pos>
+                <size>1 1</size>
+                <path>${artBg}</path>
+                <color>${bgTint}</color>
+                <zIndex>1</zIndex>
+            </image>
+
+            <!-- bottom control deck: translucent gradient strip (skills/badges/gen_deck.py); the art shows through.
+             The footer has two rows: the small, muted hotkey strip (y=0.884, right, game lists only) above the primary row at
+             y=0.945: brand stamp (left), help prompts (centred in the free space), clock (right).
+             The top of the screen stays free of UI on the system view. -->
+            <image name="controlDeck">
+                <pos>0 0.86</pos>
+                <size>1 0.14</size>
+                <path>${artDeck}</path>
+                <color>${deckTint}</color>
+                <zIndex>5</zIndex>
+            </image>
+
+            <!-- clock is OFF on the cabinet (DisplayClock=false); if turned on it sits where the help bar now ends -->
+            <clock name="clock">
+                <pos>0.965 0.945</pos>
+                <origin>1 0.5</origin>
+                <fontPath>${pixFont}</fontPath>
+                <fontSize>0.016</fontSize>
+                <color>${clockColor}</color>
+                <format>%H:%M</format>
+            </clock>
+
+            <!-- build stamp (the maintainer 2026-11-15, "REV" like an arcade board's ROM revision): replaces the wordmark. The placeholder below is filled at deploy by
+                 the esde_theme role with git describe of the deployed checkout (see mk/flags.mk)
+                 (a bare hash before the first release tag, vX.Y.Z on a release). Kept within the old 0.215 width. -->
+            <!-- Wi-Fi / Bluetooth icons bottom-left, just above the REV stamp (the maintainer 2026-11-15; ES-DE default is
+                 top-right). Above the REV stamp (starts ~0.935); the game lists' LIGHT/MEDIUM/HEAVY legend is gone (#172). -->
+            <systemstatus name="systemStatus">
+                <pos>0.035 0.918</pos>
+                <origin>0 0.5</origin>
+                <height>0.02</height>
+                <color>${textMuted}</color>
+                <entries>bluetooth, wifi</entries>
+            </systemstatus>
+            <text name="buildStamp">
+                <pos>0.035 0.945</pos>
+                <origin>0 0.5</origin>
+                <size>0.215 0.03</size>
+                <text>REV @COIN_DOJO_VERSION@</text>
+                <fontPath>${pixFont}</fontPath>
+                <fontSize>0.0115</fontSize>
+                <color>${textMuted}</color>
+                <horizontalAlignment>left</horizontalAlignment>
+                <zIndex>20</zIndex>
+            </text>
+
+            <!-- Footer hierarchy (#57 rows): the help bar is the PRIMARY bottom row (bigger, full-strength text);
+                 the hotkey strip above it is the secondary, muted info row with smaller badges.
+                 test_theme_xml.py: help icon height must clearly beat the strip's rendered badge height. -->
+            <helpsystem name="help">
+                <!-- right-aligned to the hotkey strip's edge (0.97) so both rows read as one panel (the maintainer 2026-11-15) -->
+                <pos>0.97 0.945</pos>
+                <origin>1 0.5</origin>
+                <fontSize>0.022</fontSize>
+                <entrySpacing>0.007</entrySpacing>
+                <textColor>${helpColor}</textColor>
+                <iconColor>${helpIcon}</iconColor>
+                <textColorDimmed>${helpDimmed}</textColorDimmed>
+                <iconColorDimmed>${helpDimmed}</iconColorDimmed>
+                <letterCase>uppercase</letterCase>
+                <!-- physical panel button names (#57), see skills/badges/gen_help.py -->
+                <customButtonIcon button="button_a_XBOX">./_inc/help/button_a_XBOX.png</customButtonIcon>
+                <customButtonIcon button="button_a_XBOX360">./_inc/help/button_a_XBOX360.png</customButtonIcon>
+                <customButtonIcon button="button_b_XBOX">./_inc/help/button_b_XBOX.png</customButtonIcon>
+                <customButtonIcon button="button_b_XBOX360">./_inc/help/button_b_XBOX360.png</customButtonIcon>
+                <customButtonIcon button="button_back_XBOX">./_inc/help/button_back_XBOX.png</customButtonIcon>
+                <customButtonIcon button="button_back_XBOX360">./_inc/help/button_back_XBOX360.png</customButtonIcon>
+                <customButtonIcon button="button_l">./_inc/help/button_l.png</customButtonIcon>
+                <customButtonIcon button="button_lr">./_inc/help/button_lr.png</customButtonIcon>
+                <customButtonIcon button="button_r">./_inc/help/button_r.png</customButtonIcon>
+                <customButtonIcon button="button_start_XBOX">./_inc/help/button_start_XBOX.png</customButtonIcon>
+                <customButtonIcon button="button_start_XBOX360">./_inc/help/button_start_XBOX360.png</customButtonIcon>
+                <customButtonIcon button="button_x_XBOX">./_inc/help/button_x_XBOX.png</customButtonIcon>
+                <customButtonIcon button="button_x_XBOX360">./_inc/help/button_x_XBOX360.png</customButtonIcon>
+                <customButtonIcon button="button_y_XBOX">./_inc/help/button_y_XBOX.png</customButtonIcon>
+                <customButtonIcon button="button_y_XBOX360">./_inc/help/button_y_XBOX360.png</customButtonIcon>
+                <customButtonIcon button="dpad_all">./_inc/help/dpad_all.png</customButtonIcon>
+                <customButtonIcon button="dpad_leftright">./_inc/help/dpad_leftright.png</customButtonIcon>
+                <customButtonIcon button="dpad_updown">./_inc/help/dpad_updown.png</customButtonIcon>
+            </helpsystem>
+
+        </view>
+
+        <!-- system view -->
+        <view name="system">
+            <image name="sysBackdrop">
+                <pos>0 0</pos>
+                <size>1 1</size>
+                <path>./_inc/art/backdrops/${system.theme}.png</path>
+                <default>./_inc/art/backdrops/default.png</default>
+                <zIndex>2</zIndex>
+            </image>
+            <!-- gradient scrim (skills/badges/gen_scrim.py): clear top, ~38% behind the carousel, ~85% footer -->
+            <image name="scrim">
+                <pos>0 0</pos>
+                <size>1 1</size>
+                <path>./_inc/art/scrim.png</path>
+                <zIndex>3</zIndex>
+            </image>
+            <!-- Text carousel: each system name is drawn on a visible dark
+                 panel (carousel <color>) in bright type (<textColor>), the
+                 same text-fallback mechanism slate relies on. The old theme
+                 set both panel and text to near-white (EAF0FF) => invisible
+                 items and a black-looking system view. -->
+            <carousel name="systemCarousel">
+                <type>horizontal</type>
+                <pos>0 0.40</pos>
+                <size>1 0.26</size>
+                <!-- Per-system chrome badge (original stylized text, no
+                     copyrighted logos). ${system.theme} resolves to the
+                     system folder name, so ./_inc/systems/<system>.png is
+                     picked per item. When a badge file is absent ES-DE falls
+                     back to defaultImage (none here) then to the <text>
+                     below, so unbadged systems still show their full name. -->
+                <staticImage>./_inc/systems/${system.theme}.png</staticImage>
+                <imageInterpolation>linear</imageInterpolation>
+                <text>${system.fullName}</text>
+                <textColor>${carouselText}</textColor>
+                <textBackgroundColor>00000000</textBackgroundColor>
+                <color>${carouselPanel}</color>
+                <fontPath>${dispFont}</fontPath>
+                <fontSize>0.042</fontSize>
+                <letterCase>uppercase</letterCase>
+                <lineSpacing>1.1</lineSpacing>
+                <unfocusedItemOpacity>0.60</unfocusedItemOpacity>
+                <maxItemCount>3</maxItemCount>
+                <!-- 4:3 geometry (#221): with 3 items the slots sit W/3 apart, so a neighbour spans
+                     1/6 - margin -/+ itemSize.x/2. 0.20 wide + 0.03 margin keeps it at 0.037..0.237 (inside the
+                     0.03 safe margin, clear of the selected badge at 0.258); itemScale 2.42 keeps the selected
+                     badge at its old 0.484 x 0.136. themes/tests/test_theme_xml.py checks the edges. -->
+                <itemSize>0.20 0.0564</itemSize>
+                <itemScale>2.42</itemScale>
+                <selectedItemMargins>0.03 0.03</selectedItemMargins>
+                <zIndex>15</zIndex>
+            </carousel>
+
+            <!-- category chip (CURATED / DECADE / GENRE / SYSTEM) above the badge. ES-DE has no
+                 per-item variables, so the chip is a per-entry PNG picked by ${system.theme}
+                 (generated by skills/badges/gen_chips.py); unknown entries fall back to SYSTEM. -->
+            <!-- chip / title / count sit as one block around the selected title (the maintainer 2026-11-15: "closer"):
+                 title text spans ~0.495-0.565, chip ends 0.03 above it, the pill starts 0.03 below it -->
+            <image name="categoryChip">
+                <pos>0.5 0.465</pos>
+                <origin>0.5 1</origin>
+                <size>0 0.045</size>
+                <path>./_inc/chips/${system.theme}.png</path>
+                <default>./_inc/chips/default.png</default>
+                <zIndex>20</zIndex>
+            </image>
+            <!-- genre pictogram (GENRE entries only; transparent default for the rest) -->
+            <image name="genreIcon">
+                <pos>0.5 0.415</pos>
+                <origin>0.5 1</origin>
+                <size>0 0.12</size>
+                <path>./_inc/icons/${system.theme}.png</path>
+                <default>./_inc/icons/default.png</default>
+                <zIndex>20</zIndex>
+            </image>
+
+            <!-- trophies-hint:begin (#180; esde_theme strips this whole block when RetroAchievements is off, #181)
+                 the maintainer 2026-11-17: the LP Trophies shortcut sits in the help bar's row. ES-DE's help bar takes no custom
+                 entries, so the system view draws it at the row's right end in the help bar's own look (the LP icon
+                 tinted like its icons, the label in its colour and size) and moves its help bar left to make room. -->
+            <helpsystem name="help">
+                <pos>0.866 0.945</pos>
+            </helpsystem>
+            <image name="trophiesHintIcon">
+                <pos>0.876 0.945</pos>
+                <origin>0 0.5</origin>
+                <size>0 0.0205</size>
+                <path>./_inc/help/button_y_XBOX.png</path>
+                <color>${helpIcon}</color>
+                <zIndex>20</zIndex>
+            </image>
+            <text name="trophiesHintLabel">
+                <pos>0.8975 0.945</pos>
+                <origin>0 0.5</origin>
+                <size>0.07 0.03</size>
+                <text>Trophies</text>
+                <fontSize>0.022</fontSize>
+                <color>${helpColor}</color>
+                <letterCase>uppercase</letterCase>
+                <horizontalAlignment>left</horizontalAlignment>
+                <verticalAlignment>center</verticalAlignment>
+                <zIndex>20</zIndex>
+            </text>
+            <!-- trophies-hint:end -->
+            <!-- "N GAMES" pill (gamecountGames = count only, no favourites) -->
+            <text name="gameCounter">
+                <pos>0.5 0.622</pos>
+                <origin>0.5 0.5</origin>
+                <size>0.20 0.052</size>
+                <systemdata>gamecountGames</systemdata>
+                <fontPath>${uiBold}</fontPath>
+                <fontSize>0.024</fontSize>
+                <color>${gameCounterColor}</color>
+                <backgroundColor>${gameCounterBg}</backgroundColor>
+                <backgroundCornerRadius>0.026</backgroundCornerRadius>
+                <horizontalAlignment>center</horizontalAlignment>
+                <verticalAlignment>center</verticalAlignment>
+                <letterCase>uppercase</letterCase>
+                <zIndex>20</zIndex>
+            </text>
+        </view>
+
+        <!-- gamelist view -->
+        <view name="gamelist">
+            <!-- hotkey strip (badges, gen_help.py), gamelist view only (the maintainer 2026-11-15: in-game hotkeys are noise on the carousel; #57): secondary row, muted, 2x art shown
+                 at half size (64 px PNG -> 32 px on 1080), bottom edge kept clear of the help bar -->
+            <image name="controlsHint">
+                <pos>0.97 0.884</pos>
+                <origin>1 0</origin>
+                <size>0 0.02963</size>
+                <path>./_inc/help/hotkeys.png</path>
+                <zIndex>20</zIndex>
+            </image>
+            <!-- same per-system backdrop as the system view, behind a flat veil (scrim-list), so the art
+                 frames the panels instead of a second, clashing background -->
+            <image name="listBackdrop">
+                <pos>0 0</pos>
+                <size>1 1</size>
+                <path>./_inc/art/backdrops/${system.theme}.png</path>
+                <default>./_inc/art/backdrops/default.png</default>
+                <zIndex>2</zIndex>
+            </image>
+            <image name="listScrim">
+                <pos>0 0</pos>
+                <size>1 1</size>
+                <path>./_inc/art/scrim-list.png</path>
+                <zIndex>3</zIndex>
+            </image>
+            <text name="systemTitle">
+                <pos>0.031 0.125</pos>
+                <origin>0 0</origin>
+                <metadata>systemFullname</metadata>
+                <fontPath>${dispFont}</fontPath>
+                <fontSize>0.028</fontSize>
+                <color>${systemTitleColor}</color>
+                <letterCase>uppercase</letterCase>
+                <zIndex>20</zIndex>
+            </text>
+
+            <!-- collection headers (auto + custom collections get the same look) -->
+            <text name="collectionsSystemName, customCollectionsSystemName, customCollectionsHeader">
+                <pos>0.47 0.125</pos>
+                <origin>0 0</origin>
+                <metadataElement>true</metadataElement>
+                <fontPath>${uiBold}</fontPath>
+                <fontSize>0.024</fontSize>
+                <color>${collectionHeaderColor}</color>
+                <letterCase>uppercase</letterCase>
+                <zIndex>20</zIndex>
+            </text>
+
+            <image name="panelLeft">
+                <pos>0.03 0.19</pos>
+                <size>0.40 0.655</size>
+                <path>${artPanel}</path>
+                <color>${panelTint}</color>
+                <zIndex>10</zIndex>
+            </image>
+            <image name="panelRight">
+                <pos>0.45 0.19</pos>
+                <size>0.52 0.655</size>
+                <path>${artPanelRed}</path>
+                <color>${panelRedTint}</color>
+                <zIndex>10</zIndex>
+            </image>
+
+            <image name="panelFrameLeft">
+                <pos>0.03 0.19</pos>
+                <size>0.40 0.655</size>
+                <path>./_inc/art/frames/panel-left.png</path>
+                <zIndex>16</zIndex>
+            </image>
+            <image name="panelFrameRight">
+                <pos>0.45 0.19</pos>
+                <size>0.52 0.655</size>
+                <path>./_inc/art/frames/panel-right.png</path>
+                <zIndex>16</zIndex>
+            </image>
+            <textlist name="gamelistTextlist">
+                <pos>0.05 0.205</pos>
+                <size>0.36 0.625</size>
+                <selectorColor>${listSelector}</selectorColor>
+                <selectedColor>${listSelected}</selectedColor>
+                <primaryColor>${listPrimary}</primaryColor>
+                <secondaryColor>${listSecondary}</secondaryColor>
+                <fontPath>${uiBold}</fontPath>
+                <fontSize>0.028</fontSize>
+                <horizontalAlignment>left</horizontalAlignment>
+                <horizontalMargin>0.012</horizontalMargin>
+                <letterCase>uppercase</letterCase>
+                <indicators>symbols</indicators>
+                <lineSpacing>1.5</lineSpacing>
+                <zIndex>20</zIndex>
+            </textlist>
+
+            <!-- No gamelistinfo element: favorites are off on the cabinet (es_settings, 7c2a182) and ES-DE 3.5's
+                 gamelistinfo always appends the favorites count ("pad N  star 0"); it cannot show the game count
+                 alone, and text <systemdata> (gamecountGames) renders empty in the gamelist view. The game count
+                 stays on the system view's "N GAMES" pill. test_theme_xml.py guards this. -->
+
+            <!-- selected game's title under the media, gold display type -->
+            <text name="gameTitle">
+                <pos>0.47 0.503</pos>
+                <origin>0 0</origin>
+                <size>0.48 0.056</size>
+                <container>true</container>
+                <containerType>vertical</containerType>
+                <containerScrollSpeed>0.6</containerScrollSpeed>
+                <lineSpacing>1.15</lineSpacing>
+                <metadata>name</metadata>
+                <fontPath>${dispFont}</fontPath>
+                <fontSize>0.0215</fontSize>
+                <color>${gameCounterColor}</color>
+                <letterCase>uppercase</letterCase>
+                <zIndex>20</zIndex>
+            </text>
+
+            <!-- scraped description (auto-scrolls) -->
+            <text name="description">
+                <pos>0.47 0.566</pos>
+                <size>0.48 0.086</size>
+                <container>true</container>
+                <containerType>vertical</containerType>
+                <containerScrollSpeed>1</containerScrollSpeed>
+                <metadata>description</metadata>
+                <fontPath>${uiSemi}</fontPath>
+                <fontSize>0.0185</fontSize>
+                <color>${descColor}</color>
+                <lineSpacing>1.25</lineSpacing>
+                <zIndex>20</zIndex>
+            </text>
+
+            <rating name="rating">
+                <pos>0.47 0.662</pos>
+                <origin>0 0</origin>
+                <size>0 0.026</size>
+                <filledPath>${ratingFilled}</filledPath>
+                <unfilledPath>${ratingEmpty}</unfilledPath>
+                <color>${ratingColor}</color>
+                <overlay>false</overlay>
+                <interpolation>nearest</interpolation>
+                <zIndex>20</zIndex>
+            </rating>
+
+            <!-- metadata grid -->
+            <text name="labelGenre, labelPlayers, labelDeveloper, labelReleased">
+                <origin>0 0</origin>
+                <metadataElement>true</metadataElement>
+                <fontPath>${uiBold}</fontPath>
+                <fontSize>0.0165</fontSize>
+                <color>${labelColor}</color>
+                <letterCase>uppercase</letterCase>
+                <zIndex>20</zIndex>
+            </text>
+            <text name="genre, players, developer">
+                <origin>0 0</origin>
+                <fontPath>${uiSemi}</fontPath>
+                <fontSize>0.0165</fontSize>
+                <color>${valueColor}</color>
+                <letterCase>uppercase</letterCase>
+                <zIndex>20</zIndex>
+            </text>
+            <datetime name="releasedate">
+                <origin>0 0</origin>
+                <metadata>releasedate</metadata>
+                <fontPath>${uiSemi}</fontPath>
+                <fontSize>0.0165</fontSize>
+                <color>${valueColor}</color>
+                <format>%Y</format>
+                <zIndex>20</zIndex>
+            </datetime>
+
+            <text name="labelGenre"><pos>0.47 0.705</pos><text>GENRE</text></text>
+            <text name="genre"><pos>0.565 0.705</pos><size>0.15 0.02</size><metadata>genre</metadata></text>
+            <text name="labelPlayers"><pos>0.47 0.737</pos><text>PLAYERS</text></text>
+            <text name="players"><pos>0.565 0.737</pos><size>0.15 0.02</size><metadata>players</metadata></text>
+            <text name="labelDeveloper"><pos>0.47 0.769</pos><text>MAKER</text></text>
+            <text name="developer"><pos>0.565 0.769</pos><size>0.15 0.02</size><metadata>developer</metadata></text>
+            <text name="labelReleased"><pos>0.47 0.801</pos><text>YEAR</text></text>
+            <datetime name="releasedate"><pos>0.565 0.801</pos><size>0.15 0.02</size></datetime>
+
+            <!-- status badges (no favorite slot: favorites are off, old favorite flags in gamelists must not show) -->
+            <badges name="badges">
+                <pos>0.60 0.659</pos>
+                <origin>0 0</origin>
+                <size>0.20 0.028</size>
+                <horizontalAlignment>left</horizontalAlignment>
+                <direction>row</direction>
+                <lines>1</lines>
+                <itemsPerLine>6</itemsPerLine>
+                <slots>completed, kidgame, broken, collection, altemulator, manual</slots>
+                <badgeIconColor>${badgeColor}</badgeIconColor>
+                <controllerPos>0.5 0.56</controllerPos>
+                <controllerSize>0.8</controllerSize>
+                <itemMargin>0.004 0.004</itemMargin>
+                <zIndex>20</zIndex>
+            </badges>
+
+            <!-- controls card (#57): the game's <controller> type picks the card, drawn by
+                 skills/controls/controls.py render; the badge itself is invisible -->
+            <badges name="controlsCard">
+                <pos>0.725 0.695</pos>
+                <origin>0 0</origin>
+                <size>0.24 0.122</size>
+                <horizontalAlignment>left</horizontalAlignment>
+                <lines>1</lines>
+                <itemsPerLine>1</itemsPerLine>
+                <slots>controller</slots>
+                <controllerPos>1.0 0.5</controllerPos>
+                <controllerSize>2</controllerSize>
+                <customBadgeIcon badge="controller">./_inc/controls/none.png</customBadgeIcon>
+                <customControllerIcon controller="joystick_arcade_6_buttons">./_inc/controls/arcade6.png</customControllerIcon>
+                <customControllerIcon controller="gamepad_sega_md_6_buttons">./_inc/controls/genesis6.png</customControllerIcon>
+                <customControllerIcon controller="joystick_arcade_1_button">./_inc/controls/atari.png</customControllerIcon>
+                <customControllerIcon controller="joystick_arcade_no_buttons_twin">./_inc/controls/twinstick.png</customControllerIcon>
+                <customControllerIcon controller="gamepad_nintendo_snes">./_inc/controls/snes.png</customControllerIcon>
+                <customControllerIcon controller="joystick_arcade_4_buttons">./_inc/controls/neogeo.png</customControllerIcon>
+                <customControllerIcon controller="gamepad_sega_md_3_buttons">./_inc/controls/saturn.png</customControllerIcon>
+                <customControllerIcon controller="gamepad_playstation">./_inc/controls/psx.png</customControllerIcon>
+                <customControllerIcon controller="gamepad_sega_dreamcast">./_inc/controls/dreamcast.png</customControllerIcon>
+                <customControllerIcon controller="joystick_arcade_3_buttons">./_inc/controls/fbneo.png</customControllerIcon>
+                <customControllerIcon controller="gamepad_nintendo_nes">./_inc/controls/nes.png</customControllerIcon>
+                <customControllerIcon controller="gamepad_generic">./_inc/controls/pcengine.png</customControllerIcon>
+                <customControllerIcon controller="gamepad_nintendo_64">./_inc/controls/n64.png</customControllerIcon>
+                <zIndex>20</zIndex>
+            </badges>
+        </view>
+    </variant>
+
+    <!-- ============================================================= -->
+    <!-- Media variants                                                -->
+    <!-- ============================================================= -->
+    <variant name="withVideos">
+        <view name="gamelist">
+            <video name="gameVideo">
+                <pos>0.71 0.36</pos>
+                <origin>0.5 0.5</origin>
+                <maxSize>0.47 0.29</maxSize>
+                <imageType>cover, titlescreen, screenshot</imageType>
+                <delay>1.5</delay>
+                <interpolation>nearest</interpolation>
+                <pillarboxes>true</pillarboxes>
+                <scrollFadeIn>true</scrollFadeIn>
+                <zIndex>15</zIndex>
+            </video>
+        </view>
+    </variant>
+
+    <variant name="withoutVideos">
+        <view name="gamelist">
+            <image name="gameImage">
+                <pos>0.71 0.36</pos>
+                <origin>0.5 0.5</origin>
+                <maxSize>0.47 0.29</maxSize>
+                <imageType>cover, titlescreen, screenshot, miximage</imageType>
+                <interpolation>nearest</interpolation>
+                <scrollFadeIn>true</scrollFadeIn>
+                <zIndex>15</zIndex>
+            </image>
+        </view>
+    </variant>
+
+    <!-- no scraped media: widen the list, hide the media/metadata column -->
+    <variant name="noGameMedia">
+        <view name="gamelist">
+            <image name="panelLeft">
+                <pos>0.03 0.19</pos>
+                <size>0.94 0.655</size>
+            </image>
+            <image name="panelRight"><visible>false</visible></image>
+            <image name="panelFrameLeft"><size>0.94 0.655</size></image>
+            <image name="panelFrameRight"><visible>false</visible></image>
+            <textlist name="gamelistTextlist">
+                <pos>0.05 0.205</pos>
+                <size>0.90 0.625</size>
+            </textlist>
+            <text name="description"><visible>false</visible></text>
+            <text name="gameTitle"><visible>false</visible></text>
+            <rating name="rating"><visible>false</visible></rating>
+            <badges name="badges"><visible>false</visible></badges>
+            <text name="labelGenre, labelPlayers, labelDeveloper, labelReleased,
+                        genre, players, developer"><visible>false</visible></text>
+            <datetime name="releasedate"><visible>false</visible></datetime>
+            <badges name="controlsCard"><visible>false</visible></badges>
+            <text name="collectionsSystemName, customCollectionsSystemName,
+                        customCollectionsHeader"><pos>0.03 0.125</pos></text>
+        </view>
+    </variant>
+
+    <!-- Eye glow, brightening and dimming (#105, #263), see <eyeGlow> above. -->
+    <include>./_inc/art/backdrops/${eyeGlow}.xml</include>
+
+    <!-- per-system overrides (last, so they win): ./_inc/per-system/<system.theme>.xml when it exists.
+         Today only settings.xml (#34: no game counter under SETTINGS). -->
+    <include>./_inc/per-system/${system.theme}.xml</include>
+</theme>

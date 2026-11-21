@@ -1,0 +1,49 @@
+# Deploy the coin-dojo cabinet (Debian 13 + ES-DE, user coindojo, key auth, sudo) over SSH, from the Mac,
+# through the pinned Ansible container (bin/ans). NO SD-card swapping.
+#
+#   make deploy                   # dry run (--check --diff) of everything, LIMIT=coin-dojo
+#   make deploy TAGS=dreamcast    # dry run of one role (tag); APPLY=1 writes
+#
+# Reboot-needing changes only set a flag and print "reboot required" at the end; nothing restarts
+# ES-DE or the cabinet except the esde_common handler (once, only if ES-DE input changed).
+- name: Deploy dreamcast + system tweaks to the Debian cabinet
+  hosts: pios
+  gather_facts: true
+  roles:
+    # #244 the cores and ROM folders launch.py names (its CORE_BY_SYSTEM); only missing ones are added. Before
+    # cabinet_tweaks, which asserts its pinned cores exist. The image build (image.yml) runs the same role.
+    - { role: cores, tags: [cores] }
+    - role: cabinet_tweaks
+      tags: [cabinet_tweaks, tweaks]
+    - role: dreamcast
+      tags: [dreamcast]
+    - { role: retroarch122, tags: [retroarch122, n64] }   # #63 RetroArch 1.22.2 (all systems) + GLES N64 core/cfg
+    - { role: launcher, tags: [launcher] }   # #62 ~/ES-DE/scripts/launch.py (backup + .prev, argv gate); make launch-rollback
+    # #208 Fightcade mode: Box64 + Wine + arm64 Electron under /data/fightcade/opt, /usr/local/bin/coin-dojo-fightcade
+    # (the session runs it); root writes only the root fs, coindojo everything under /data. Needs build/*/out.
+    - { role: fightcade, tags: [fightcade] }
+    - role: power
+      tags: [power]
+    - { role: sshd_keyonly, tags: [sshd_keyonly] }   # #41 key-only SSH (Build); lockout-guarded, see role
+    - { role: journald, tags: [journald] }           # persistent, size-capped journal (journalctl -b -1)
+    - { role: diskhygiene, tags: [diskhygiene] }     # #91 root-fs space: dpkg path-exclude, prune, planned purges
+    # #209 session loop on tty1 (boot menu -> ES-DE / Fightcade), cleanup + stop hook, permanent vm.swappiness.
+    # Edits only the es-de exec line of .bash_profile (lockout-guarded); starts at the next tty1 login.
+    - { role: session, tags: [session] }
+    # #266 network folder: roms + bios over SMB (SMB3, no guest, LAN only) and <hostname>.local (avahi). Lever
+    # hk_share_enable (community default on; the maintainer's local config turns it off). make deploy TAGS=share BECOME=1
+    - { role: share, tags: [share] }
+    # #34/#35 SETTINGS app (Wi-Fi, cabinet name): before the ES-DE roles, so the nested build sees its entry file
+    # and adds the SETTINGS carousel system (make deploy TAGS=settings,esde BECOME=1).
+    - { role: settings, tags: [settings] }
+    # ES-DE deploys (#89): guard + stamp first, then theme, collections, and the post-restart verify last.
+    # `restart es-de` (esde_common handler) fires once, at esde_verify's flush, only if ES-DE input changed.
+    - { role: esde_common, tags: [esde, esde_theme, collections, gamelists, esde_verify] }
+    - { role: esde_theme, tags: [esde, esde_theme] }
+    - { role: esde_collections, tags: [esde, collections, gamelists] }
+    - { role: esde_verify, tags: [esde, esde_theme, collections, gamelists, esde_verify] }
+
+# --- coin-dojo-vm (#82): the throwaway test VM on the Mac, never the cabinet ---------------------
+# hosts: vm (inventory/vm.yml) with a hostname assert; run it with --limit coin-dojo-vm.
+- name: Test VM play (vm.yml)
+  import_playbook: vm.yml

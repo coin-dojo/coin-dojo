@@ -1,0 +1,9 @@
+# Black Widow twin stick (#59, NOT TESTED). FBNeo special-cases bwidow with robotron (retro_input.cpp
+# "Black Widow, Robotron"): P1's Fire Up/Down/Left/Right are on P1's right analog. Same remap as
+# robotron.rmp (user 2 -> core port 1, P2 d-pad -> right analog up 23, down 22, left 21, right 20).
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "0"
+input_player2_btn_up = "23"
+input_player2_btn_down = "22"
+input_player2_btn_left = "21"
+input_player2_btn_right = "20"

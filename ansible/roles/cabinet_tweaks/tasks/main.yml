@@ -1,0 +1,499 @@
+# cabinet_tweaks: kernel, zram swap, Wi-Fi power save, RetroArch, remaps, hidden cursor, ES-DE settings (#24, #52, #56,
+# #213).
+# Every task edits in place with a per-key/per-line module; no whole-file templates of files the apps
+# rewrite. Exception: the remaps are owned whole, because remap_save_on_exit is set false here.
+
+# --- 4 KB-page kernel -------------------------------------------------------------------------
+# Revert: set cabinet_kernel_4k=false is NOT enough (it only stops managing the line); delete the
+# `kernel=kernel8.img` line from /boot/firmware/config.txt (restores the 16 KB kernel_2712.img)
+# and reboot. A timestamped config.txt.<date>~ backup is kept next to the file on every change.
+- name: 4 KB-page kernel for emulator JIT (flycast); backup then kernel=kernel8.img under [all]
+  ansible.builtin.lineinfile:
+    path: "{{ cabinet_boot_config }}"
+    regexp: '^kernel='
+    line: kernel=kernel8.img
+    insertafter: '^\[all\]'
+    # #244: not in an image build: the base image's config.txt is pristine, and the backup's name (a ':' in the time)
+    # is refused by the FAT boot partition there.
+    backup: "{{ not coin_dojo_image | default(false) | bool }}"
+  become: true
+  when: cabinet_kernel_4k | bool
+  notify: [cabinet reboot required, print reboot required]
+  register: cabinet_kernel_line
+
+- name: Comment explaining how to revert the kernel line
+  ansible.builtin.lineinfile:
+    path: "{{ cabinet_boot_config }}"
+    regexp: '^# 4KB-page kernel for emulator JIT'
+    line: "# 4KB-page kernel for emulator JIT compatibility (flycast/Dreamcast etc.). Revert: delete the next line (restores the Pi5 16KB-page kernel_2712.img default)"
+    insertbefore: '^kernel=kernel8\.img$'
+  become: true
+  when: cabinet_kernel_4k | bool
+
+# --- Swap: zram (#52) --------------------------------------------------------------------------
+# The OS default (rpi-swap + systemd-zram-generator), ensured so a rebuild keeps it. Package present
+# only (no upgrade); the drop-in pins today's values, so on the live cabinet it changes nothing until
+# a boot and then gives the same zram0. Nothing is restarted.
+- name: Zram swap packages are installed (Raspberry Pi OS default)
+  ansible.builtin.apt:
+    name: "{{ cabinet_swap_packages }}"
+    state: present
+  become: true
+  register: cabinet_swap_pkgs
+
+- name: Say that zram needs a reboot after a fresh package install
+  ansible.builtin.debug:
+    msg: "REBOOT REQUIRED on {{ inventory_hostname }}: zram packages were just installed; zram0 appears at the next boot. Not rebooting automatically."
+  when: cabinet_swap_pkgs is changed
+
+- name: Rpi-swap drop-in directory exists
+  ansible.builtin.file:
+    path: "{{ cabinet_swap_dropin | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Pin the swap mechanism and zram size (rpi-swap drop-in)
+  ansible.builtin.copy:
+    dest: "{{ cabinet_swap_dropin }}"
+    content: |
+      # Managed by coin-dojo ansible cabinet_tweaks (#52). Mechanism zram = RAM only (no /var/swap); read at boot.
+      [Main]
+      Mechanism={{ cabinet_swap_mechanism }}
+
+      [Zram]
+      RamMultiplier={{ cabinet_zram_ram_multiplier }}
+      MaxSizeMiB={{ cabinet_zram_max_mib }}
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Read the other rpi-swap Mechanism settings
+  ansible.builtin.shell:
+    cmd: "grep -hsE '^[[:space:]]*Mechanism[[:space:]]*=' /etc/rpi/swap.conf /etc/rpi/swap.conf.d/*.conf || true"
+  register: cabinet_swap_mech
+  changed_when: false
+  check_mode: false
+
+- name: Assert no rpi-swap setting turns zram off
+  ansible.builtin.assert:
+    that: cabinet_swap_mech.stdout_lines | map('regex_replace', '^\s*Mechanism\s*=\s*', '') | map('trim') | reject('in', ['auto', 'zram', 'zram+file']) | list | length == 0
+    fail_msg: "an rpi-swap config disables zram: {{ cabinet_swap_mech.stdout_lines }} (allowed: auto, zram, zram+file)"
+
+- name: Read the active swap devices
+  ansible.builtin.command:
+    cmd: cat /proc/swaps
+  register: cabinet_proc_swaps
+  changed_when: false
+  check_mode: false
+
+# zram RAM-only (Mechanism=zram): delete the old writeback file once nothing uses it (after the reboot that
+# applies the new mechanism). While a loop device still backs it, it stays and the run says REBOOT.
+- name: Is /var/swap still attached to a loop device (zram writeback)?
+  ansible.builtin.command:
+    cmd: losetup -j /var/swap
+  register: cabinet_swapfile_loop
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  become: true
+  when: cabinet_swap_mechanism == 'zram'
+
+- name: Remove the unused /var/swap writeback file
+  ansible.builtin.file:
+    path: /var/swap
+    state: absent
+  become: true
+  when: cabinet_swap_mechanism == 'zram' and (cabinet_swapfile_loop.stdout | default('x')) == ''
+
+- name: REBOOT needed before /var/swap can go
+  ansible.builtin.debug:
+    msg: "REBOOT REQUIRED: /var/swap is still zram's writeback file ({{ cabinet_swapfile_loop.stdout }}); reboot, then re-run cabinet_tweaks to delete it"
+  when: cabinet_swap_mechanism == 'zram' and (cabinet_swapfile_loop.stdout | default('')) != ''
+
+# Skipped when the packages were just installed: zram then appears only after the reboot. Image build (#244): /proc is
+# the build machine's, so zram is first seen at the image's first boot.
+- name: Assert zram swap is active
+  ansible.builtin.assert:
+    that: "'/dev/zram' in cabinet_proc_swaps.stdout"
+    fail_msg: "no zram swap in /proc/swaps: {{ cabinet_proc_swaps.stdout }}"
+  when: not (cabinet_swap_pkgs is changed) and not coin_dojo_image | default(false) | bool
+
+# --- Hardening: no sudo for the stock `pi` user; apt keeps no cache (the maintainer 2026-11-14) ------------
+- name: Read the groups of the users that lose sudo
+  ansible.builtin.shell:
+    cmd: "id -gn {{ item | quote }} && id -Gn {{ item | quote }}"
+  loop: "{{ cabinet_nosudo_users }}"
+  register: cabinet_nosudo_groups
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# groups = today's supplementary groups minus sudo (and minus the primary group); append false = exact set.
+- name: Take these users out of the sudo group (their other groups stay)
+  ansible.builtin.user:
+    name: "{{ item.item }}"
+    groups: "{{ item.stdout_lines[1].split() | reject('equalto', 'sudo') | reject('equalto', item.stdout_lines[0]) | list }}"
+    append: false
+  become: true
+  loop: "{{ cabinet_nosudo_groups.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.rc == 0
+
+# #93: Pi OS sets timestamp_type=global, so one sudo (every BECOME=1 deploy) left passwordless root for ~15 min to
+# EVERY coindojo process (ES-DE, emulators, kiosk). timestamp_timeout=0: sudo asks every time. Ansible's become sends
+# the password on every task, and the NOPASSWD rules (power, SETTINGS helper) never use the timestamp.
+# validate refuses a file visudo rejects (a bad sudoers file locks sudo out). Revert: delete the file.
+- name: Sudo caches no credentials for the cabinet user (asks every time)
+  ansible.builtin.copy:
+    dest: "{{ cabinet_sudo_timeout_file }}"
+    content: |
+      # Managed by coin-dojo ansible cabinet_tweaks (#93): no cached sudo, so a deploy leaves no root window.
+      Defaults:{{ cabinet_user }} timestamp_timeout=0
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+  become: true
+
+# Proof on every apply: right after become tasks, a passwordless sudo must already be refused.
+- name: Check that sudo without a password is refused (no cached credential)
+  ansible.builtin.command: sudo -n true
+  register: cabinet_sudo_cached
+  changed_when: false
+  failed_when: cabinet_sudo_cached.rc == 0
+  when: not ansible_check_mode and cabinet_sudo_cache_proof | bool
+
+- name: Apt keeps no downloaded packages (small root fs)
+  ansible.builtin.copy:
+    dest: "{{ cabinet_apt_nocache_file }}"
+    content: |
+      // Managed by coin-dojo ansible cabinet_tweaks: the root fs is small, keep no .deb cache.
+      APT::Keep-Downloaded-Packages "false";
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+# --- Wi-Fi for online play (#213): power save off, reconnect without sudo ----------------------
+- name: Wi-Fi power save off + reconnect polkit rule (skips without NetworkManager)
+  ansible.builtin.import_tasks: wifi.yml
+
+# --- RetroArch ---------------------------------------------------------------------------------
+# RetroArch rewrites retroarch.cfg (config_save_on_exit) and remaps on exit: never edit under a running game.
+- name: Check that RetroArch is not running
+  ansible.builtin.command:
+    cmd: pgrep -f retroarch
+  register: cabinet_retroarch_running
+  changed_when: false
+  failed_when: cabinet_retroarch_running.rc > 1
+  check_mode: false
+
+- name: Refuse to change RetroArch files while a game is running
+  ansible.builtin.assert:
+    that: cabinet_retroarch_running.rc == 1
+    fail_msg: "RetroArch is running (pid {{ cabinet_retroarch_running.stdout_lines | join(', ') }}): quit the game (Select+Start), then re-run."
+
+- name: Per-core option dirs exist
+  ansible.builtin.file:
+    path: "{{ cabinet_retroarch_dir }}/config/{{ item }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+  loop: "{{ cabinet_core_options | map(attribute='core') | unique | list }}"
+
+- name: Per-core options (one lineinfile per key)
+  ansible.builtin.lineinfile:
+    path: "{{ cabinet_retroarch_dir }}/config/{{ item.core }}/{{ item.core }}.opt"
+    regexp: '^{{ item.key | regex_escape }}\s*='
+    line: '{{ item.key }} = "{{ item.value }}"'
+    create: true
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+  become: true
+  loop: "{{ cabinet_core_options }}"
+  loop_control:
+    label: "{{ item.core }}: {{ item.key }}"
+
+# #189 the cabinet wins: benchmark mode set in the SETTINGS app overrides hk_benchmark_mode.
+# #197 the file is the cabinet user's: read it as that user (a symlink cannot make root read for it), never
+# logged, and parsed by the one shared filter (ansible/filter_plugins/hk_settings_state.py).
+- name: SETTINGS app state (read as the cabinet user, never logged; missing is fine)
+  ansible.builtin.slurp:
+    src: "{{ cabinet_settings_state }}"
+  register: cabinet_settings_state_file
+  failed_when: false
+  become: true
+  become_user: "{{ cabinet_user }}"
+  no_log: true
+
+- name: SETTINGS app state parsed (real JSON booleans only; anything else is not set, the hk_* default stays)
+  ansible.builtin.set_fact:
+    cabinet_settings_app: "{{ cabinet_settings_state_file | hk_settings_state }}"
+
+- name: Benchmark mode from the SETTINGS app when it set one
+  ansible.builtin.set_fact:
+    cabinet_benchmark: "{{ cabinet_settings_app.benchmark_mode }}"
+  when: "'benchmark_mode' in cabinet_settings_app"
+
+# #285 the cabinet wins: ATTRACT MODE set in the SETTINGS app (state file keys attract_enabled / attract_minutes /
+# attract_type) overrides hk_attract_timer_ms / hk_attract_type on every deploy. OFF = ScreensaverTimer 0. Without a
+# saved choice the hk_* values apply as before; ScreensaverControls (start by hand) stays the config's.
+- name: Attract mode timer from the SETTINGS app when it set one
+  ansible.builtin.set_fact:
+    cabinet_attract_timer_ms: >-
+      {{ 0 if (cabinet_settings_app.attract_enabled | default(hk_attract_timer_ms | int > 0)) is false
+      else ((cabinet_settings_app.attract_minutes | int * 60000) if 'attract_minutes' in cabinet_settings_app
+      else (hk_attract_timer_ms | int if hk_attract_timer_ms | int > 0 else 600000)) }}
+  when: "'attract_enabled' in cabinet_settings_app or 'attract_minutes' in cabinet_settings_app"
+
+- name: Attract mode type from the SETTINGS app when it set one
+  ansible.builtin.set_fact:
+    cabinet_attract_type: "{{ cabinet_settings_app.attract_type }}"
+  when: "'attract_type' in cabinet_settings_app"
+
+- name: Dir for the SETTINGS app's files
+  ansible.builtin.file:
+    path: "{{ cabinet_benchmark_keys_file | dirname }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0700"
+  become: true
+
+- name: Benchmark keys for the SETTINGS app (the on/off values above; the app writes them; ticket 189)
+  ansible.builtin.copy:
+    dest: "{{ cabinet_benchmark_keys_file }}"
+    content: "{{ cabinet_benchmark_keys | to_nice_json }}\n"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+  become: true
+
+- name: Retroarch.cfg hotkeys (Start is the hotkey; Start+Select exits) and fps_show
+  ansible.builtin.lineinfile:
+    path: "{{ cabinet_retroarch_dir }}/retroarch.cfg"
+    regexp: '^{{ item.key | regex_escape }}\s*='
+    line: '{{ item.key }} = "{{ item.value }}"'
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+  become: true
+  loop: "{{ cabinet_retroarch_cfg }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+# --- RetroArch remaps (#56, #57): whole files, owned here (remap_save_on_exit is off above) ------
+- name: Remap dirs exist
+  ansible.builtin.file:
+    path: "{{ cabinet_retroarch_dir }}/config/remaps/{{ item }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+  loop: "{{ cabinet_remaps | map(attribute='core') | unique | list }}"
+
+# backup: true keeps the replaced file as <name>.<pid>.<date>~ next to it (RetroArch ignores it).
+- name: Deploy the remaps from skills/controls/remaps
+  ansible.builtin.copy:
+    src: "{{ cabinet_remaps_src }}/{{ item.core }}/{{ item.file }}"
+    dest: "{{ cabinet_retroarch_dir }}/config/remaps/{{ item.core }}/{{ item.file }}"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+    backup: true
+  become: true
+  loop: "{{ cabinet_remaps }}"
+  loop_control:
+    label: "{{ item.core }}/{{ item.file }}"
+
+- name: Deploy per-game core options from skills/controls/core-options
+  ansible.builtin.copy:
+    src: "{{ cabinet_core_option_files_src }}/{{ item.core }}/{{ item.file }}"
+    dest: "{{ cabinet_retroarch_dir }}/config/{{ item.core }}/{{ item.file }}"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+    backup: true
+  become: true
+  loop: "{{ cabinet_core_option_files }}"
+  loop_control:
+    label: "{{ item.core }}/{{ item.file }}"
+
+# Per-game override keys (config/<core>/<rom stem>.cfg), merged key by key: the same file holds the controls
+# helper's overlay lines (skills/controls/controls.py overrides), which stay. RetroArch reads input binds from a
+# game override and never rewrites it on exit (only "Save Game Overrides" in its menu does).
+- name: Set per-game override keys
+  ansible.builtin.lineinfile:
+    path: "{{ cabinet_retroarch_dir }}/config/{{ item.0.core }}/{{ item.0.game }}.cfg"
+    regexp: '^{{ item.1.key }}\s*='
+    line: '{{ item.1.key }} = "{{ item.1.value }}"'
+    create: true
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+    backup: true
+  become: true
+  loop: "{{ cabinet_game_overrides | subelements('keys') }}"
+  loop_control:
+    label: "{{ item.0.core }}/{{ item.0.game }}.cfg {{ item.1.key }}"
+
+# --- Hidden cursor -----------------------------------------------------------------------------
+- name: "Cursor theme parent dir exists (a fresh card has no ~/.icons; found by the #82 test VM)"
+  ansible.builtin.file:
+    path: "{{ cabinet_cursor_theme_dir | dirname }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+
+- name: Ship the transparent-cursor generator
+  ansible.builtin.copy:
+    src: gen_cursor.py
+    dest: "{{ cabinet_cursor_theme_dir | dirname }}/gen_cursor.py"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+  become: true
+
+- name: Generate the blank Xcursor theme (the script writes under $HOME/.icons/blank)
+  ansible.builtin.command:
+    cmd: "python3 -I {{ cabinet_cursor_theme_dir | dirname }}/gen_cursor.py"
+    creates: "{{ cabinet_cursor_theme_dir }}/cursors/left_ptr"
+  environment:
+    HOME: "{{ cabinet_home }}"
+  become: true
+  become_user: "{{ cabinet_user }}"
+
+- name: Export the blank cursor theme in the tty1 block of .bash_profile
+  ansible.builtin.lineinfile:
+    path: "{{ cabinet_bash_profile }}"
+    regexp: '^\s*export XCURSOR_THEME='
+    line: '  export XCURSOR_THEME=blank; export XCURSOR_SIZE=24  # transparent cursor (kiosk, no mouse)'
+    insertafter: 'MESA_GLSL_VERSION_OVERRIDE'
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+  become: true
+
+# --- ES-DE settings: in place, existing file only ---------------------------------------------
+- name: Check for es_settings.xml
+  ansible.builtin.stat:
+    path: "{{ cabinet_es_settings }}"
+  register: cabinet_es_stat
+
+# The file is a flat list of <string/bool name=... /> lines. Replace an existing line; append
+# only when the key is missing. No backup (it would copy the password); no_log hides --diff.
+- name: Set the ES-DE collection/startup keys
+  ansible.builtin.lineinfile:
+    path: "{{ cabinet_es_settings }}"
+    regexp: '^<string name="{{ item.name | regex_escape }}" '
+    line: '<string name="{{ item.name }}" value="{{ item.value }}" />'
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0600"   # #42: holds the ScreenScraper password
+  become: true
+  no_log: true   # --diff would print the whole file, including the ScreenScraper password
+  when: cabinet_es_stat.stat.exists
+  loop: "{{ cabinet_es_settings_strings }}"
+  notify: restart es-de   # ES-DE reads it at start and rewrites it on a clean exit (#89)
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Set the ES-DE int/bool keys (screensaver)
+  ansible.builtin.lineinfile:
+    path: "{{ cabinet_es_settings }}"
+    regexp: '^<{{ item.type }} name="{{ item.name | regex_escape }}" '
+    line: '<{{ item.type }} name="{{ item.name }}" value="{{ item.value }}" />'
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0600"   # #42: holds the ScreenScraper password
+  become: true
+  no_log: true   # --diff would print the whole file, including the ScreenScraper password
+  when: cabinet_es_stat.stat.exists
+  loop: "{{ cabinet_es_settings_typed }}"
+  notify: restart es-de   # ES-DE reads it at start and rewrites it on a clean exit (#89)
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Warn when es_settings.xml is missing
+  ansible.builtin.debug:
+    msg: "WARN ES-DE/settings/es_settings.xml not found; start ES-DE once, then re-run. ES-DE rewrites this file on exit: apply while it is not running (or restart it)."
+  when: not cabinet_es_stat.stat.exists
+
+# --- ES-DE default emulator per system (#47) ---------------------------------------------------
+# collgen.py names preserves <alternativeEmulator> (skills/collections/tests/test_names.py), so the
+# pins survive a collection regeneration. Fail loudly if a pinned core is not installed.
+- name: Stat the pinned libretro cores
+  ansible.builtin.stat:
+    path: "{{ cabinet_libretro_dir }}/{{ item.value.core }}"
+  register: cabinet_alt_core_stat
+  loop: "{{ cabinet_alt_emulators | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}: {{ item.value.core }}"
+
+- name: Assert every pinned system's libretro core is installed
+  ansible.builtin.assert:
+    that: item.stat.exists
+    fail_msg: "{{ item.item.key }} is pinned to {{ item.item.value.label }} but {{ cabinet_libretro_dir }}/{{ item.item.value.core }} is missing"
+  loop: "{{ cabinet_alt_core_stat.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+
+- name: Gamelist directories exist
+  ansible.builtin.file:
+    path: "{{ cabinet_es_gamelists_dir }}/{{ item.key }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+  loop: "{{ cabinet_alt_emulators | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+# force: false = only when the file is missing; an existing gamelist (with games/metadata) is never rewritten.
+- name: Create a missing gamelist with the alternativeEmulator block
+  ansible.builtin.copy:
+    dest: "{{ cabinet_es_gamelists_dir }}/{{ item.key }}/gamelist.xml"
+    content: "<?xml version=\"1.0\"?>\n<alternativeEmulator>\n\t<label>{{ item.value.label }}</label>\n</alternativeEmulator>\n<gameList>\n</gameList>\n"
+    force: false
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+  become: true
+  loop: "{{ cabinet_alt_emulators | dict2items }}"
+  notify: restart es-de
+  loop_control:
+    label: "{{ item.key }}"
+
+# Insert right after the XML declaration unless an <alternativeEmulator> already follows it.
+- name: Insert the alternativeEmulator block when absent
+  ansible.builtin.replace:
+    path: "{{ cabinet_es_gamelists_dir }}/{{ item.key }}/gamelist.xml"
+    regexp: '\A(<\?xml[^>]*>)(?!\s*<alternativeEmulator>)(\s*)'
+    replace: "\\g<1>\n<alternativeEmulator>\n\t<label>{{ item.value.label }}</label>\n</alternativeEmulator>\\g<2>"
+  become: true
+  loop: "{{ cabinet_alt_emulators | dict2items }}"
+  notify: restart es-de
+  loop_control:
+    label: "{{ item.key }}"
+
+# Replace a wrong existing label (e.g. Mesen); a correct one does not match, so it stays byte-identical.
+- name: Replace a wrong alternativeEmulator label
+  ansible.builtin.replace:
+    path: "{{ cabinet_es_gamelists_dir }}/{{ item.key }}/gamelist.xml"
+    regexp: '(\A<\?xml[^>]*>\s*<alternativeEmulator>\s*<label>)(?!{{ item.value.label | regex_escape }}</label>)[^<]*(</label>)'
+    replace: "\\g<1>{{ item.value.label }}\\g<2>"
+  become: true
+  loop: "{{ cabinet_alt_emulators | dict2items }}"
+  notify: restart es-de
+  loop_control:
+    label: "{{ item.key }}"

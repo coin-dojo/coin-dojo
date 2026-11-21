@@ -1,0 +1,20 @@
+{
+ "Achievement": {
+  "ID": 9001,
+  "Title": "Speed Demon",
+  "Description": "Finish the first zone in under 40 seconds",
+  "Points": 10,
+  "BadgeName": "100009"
+ },
+ "Console": {
+  "ID": 1,
+  "Title": "Genesis/Mega Drive"
+ },
+ "Game": {
+  "ID": 13,
+  "Title": "Sonic the Hedgehog"
+ },
+ "StartAt": "2026-11-16T00:00:00Z",
+ "TotalPlayers": 5000,
+ "UnlocksCount": 312
+}

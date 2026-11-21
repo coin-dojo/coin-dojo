@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# hkcfg NAME - print one configuration value for a shell script (ticket #131). Empty = unset. Exit 1 when the loader
+# fails (broken config, no PyYAML): the caller decides what an empty value means; it must never invent a default.
+#   tools/hkcfg hk_forge_url           LIMIT=coin-dojo-vm tools/hkcfg hk_vm_host
+# Runs tools/config.py get --soft with the config venv's python (CONFIG_PYTHON, else ~/.venvs/coin-dojo, else python3).
+set -eu
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+py=${CONFIG_PYTHON:-}
+[ -n "$py" ] || { [ -x "$HOME/.venvs/coin-dojo/bin/python" ] && py=$HOME/.venvs/coin-dojo/bin/python || py=python3; }
+exec "$py" "$HERE/config.py" get --soft --limit "${LIMIT:-coin-dojo}" "${1:?usage: hkcfg NAME}"

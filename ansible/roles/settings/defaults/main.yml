@@ -1,0 +1,151 @@
+# settings (#34/#35): the SETTINGS app (skills/settings, Design's) on the Debian cabinet (play `pios`) and the test
+# VM (vm.yml). Installs the app + the style kit + its fonts, the root hostname helper, its one sudoers line and a
+# NetworkManager polkit rule (both as narrow as they go), and the entry file the SETTINGS carousel system links to.
+#
+#   make deploy TAGS=settings BECOME=1 [APPLY=1]           cabinet (dry run unless APPLY=1)
+#   make deploy LIMIT=coin-dojo-vm TAGS=settings [APPLY=1]  test VM (fake nmcli, standalone carousel entry)
+#
+# The carousel entry itself comes from the nested build (`collgen.py nested --settings-entry`, role
+# esde_collections passes it when settings_entry exists), so on the cabinet run `make deploy-esde` after the first
+# install; the role says so at the end. Nothing here restarts ES-DE or touches a game.
+settings_user: "{{ hk_cabinet_user }}"
+settings_group: "{{ hk_cabinet_group }}"
+settings_dir: "{{ hk_tools_dir }}/settings"
+# ES-DE's "ROM" for the one SETTINGS entry: a small JSON config the app reads (nmcli path, helper, fonts).
+settings_entry: "{{ settings_dir }}/settings.hks"             # internal
+settings_command: "python3 {{ settings_dir }}/settings_app.py"   # internal
+settings_python: python3                     # internal
+# GAME LISTS (#281): where the cabinet-side rebuild (lists_rebuild.py) reads and writes, typed once here from the same vars
+# the esde_collections role uses. `edition` decides who may rebuild: only the community edition; the personal edition
+# refuses (its curated lists are made on the Mac with `make deploy-collections`).
+settings_lists:   # internal
+  edition: "{{ coin_dojo_edition | default('personal') }}"
+  tools: "{{ coin_dojo_dir }}"
+  gamelists: "{{ esde_gamelists }}"
+  custom_systems: "{{ esde_custom_systems }}"
+  roms: "{{ esde_rom_root }}"
+  media: "{{ esde_media_root }}"
+  nested_out: "{{ esde_nested_out }}"
+  nested_root: "{{ esde_nested_root }}"
+  launcher: "python3 {{ esde_user_home }}/ES-DE/scripts/launch.py"
+  picks: "{{ coin_dojo_dir }}/cabinet-picks.html"
+  picks_example: "{{ settings_dir }}/picks_example.html"
+  dat: "{{ coin_dojo_dir }}/libretro.dat"
+  folder_art: "{{ coin_dojo_dir }}/folder_photos"
+  settings_entry: "{{ settings_entry }}"
+  settings_command: "{{ settings_command }}"
+  trophies_entry: "{{ trophies_entry if hk_trophies_carousel | default(false) | bool else '' }}"
+  trophies_command: "{{ trophies_command }}"
+  quit_entry: "{{ coin_dojo_dir }}/esde_entry.sh"
+  quit_command: "bash {{ coin_dojo_dir }}/esde_entry.sh menu"
+  virtual_systems: "{{ esde_virtual_systems }}"
+  state: "{{ settings_benchmark_state }}"
+  backup_root: "{{ coin_dojo_dir }}/lists-backup"
+  run_dir: "{{ coin_dojo_run_dir }}"
+  game_procs: "{{ trophiesd_game_procs }}"
+  game_patterns: "{{ trophiesd_game_patterns }}"
+
+settings_src: "{{ hk_repo_root }}/skills/settings"
+settings_brand_src: "{{ hk_repo_root }}/brand"
+settings_fonts_src: "{{ hk_repo_root }}/themes/coin-dojo/_inc/fonts"
+settings_app_files: [settings_app.py, bootmenu_app.py, settings_core.py, trophies_app.py, trophies_core.py, trophiesd.py, esde_return.py, attract_apply.py, lists_rebuild.py]   # internal
+settings_data_files: [picks_example.html]   # internal: GAME LISTS (#281) uses it when the cabinet has no picks file of its own
+# TROPHIES page (#176): its own entry file (the nested build adds the TROPHIES system when it exists), written only
+# when RetroAchievements is on and a user is set. The Web API key (from bin/deploy's vars file, never config) goes into
+# a 0600 file in the cabinet user's home; the page never logs it.
+trophies_enable: "{{ hk_cheevos_enable }}"
+trophies_user: "{{ hk_cheevos_user }}"
+trophies_entry: "{{ settings_dir }}/trophies.hks"             # internal
+trophies_command: "python3 {{ settings_dir }}/trophies_app.py"   # internal
+trophies_key_file: "{{ hk_cabinet_home }}/.config/coin-dojo/trophies-key.json"   # internal
+trophies_cache_dir: "{{ hk_cabinet_home }}/.cache/coin-dojo/trophies"            # internal
+# TROPHIES overlay (#177): trophiesd (skills/settings/trophiesd.py) shows the page over ES-DE on a tap of LP, through the
+# power role's primed overlay.py. Runs whenever the TROPHIES entry is written; stopped and removed otherwise.
+trophiesd_enable: "{{ trophies_enable | bool and trophies_user | length > 0 }}"   # internal
+trophiesd_unit_name: coin-dojo-trophiesd                                   # internal
+trophiesd_unit_file: /etc/systemd/system/coin-dojo-trophiesd.service       # internal
+trophiesd_overlay_dir: /data/launcher                                     # internal: power_dir (overlay.py)
+trophiesd_uid: "{{ hk_cabinet_uid }}"                                     # internal
+trophiesd_nice: "{{ hk_power_nice }}"                                     # internal: same as powerd (#66)
+trophiesd_game_procs: "{{ esde_game_procs | default(['retroarch', 'flycast']) }}"   # internal: the deploy guard's list
+trophiesd_game_patterns: "{{ esde_game_patterns | default([]) }}"         # internal
+# BENCHMARK MODE (#189): the cabinet wins (the maintainer 2026-11-17). The app writes the state file; roles cabinet_tweaks and
+# dreamcast read it on every deploy (hk_benchmark_mode = only the first-install default) and publish the keys files
+# (the on/off values from their own defaults). The app checks the deploy guard's process list before writing.
+# ATTRACT MODE page (#285): what attract_apply.py needs (the `attract` key of the entry file). The choices live in the
+# state file below and win over hk_attract_* on every deploy (role cabinet_tweaks); these are the defaults it shows
+# until the owner picks something, and where ES-DE's file and the session loop are.
+settings_attract:   # internal
+  es_settings: "{{ hk_esde_home }}/settings/es_settings.xml"
+  timer_ms: "{{ hk_attract_timer_ms | int }}"
+  type: "{{ hk_attract_type }}"
+  state: "{{ settings_benchmark_state }}"
+  run_dir: "{{ coin_dojo_run_dir }}"
+  game_procs: "{{ trophiesd_game_procs }}"
+  game_patterns: "{{ trophiesd_game_patterns }}"
+settings_benchmark_state: "{{ hk_cabinet_home }}/.config/coin-dojo/settings-state.json"   # internal
+settings_benchmark_keys:   # internal: written by cabinet_tweaks (RetroArch) and dreamcast (flycast)
+  - "{{ hk_cabinet_home }}/.config/coin-dojo/benchmark-retroarch.json"
+  - "{{ hk_cabinet_home }}/.config/coin-dojo/benchmark-flycast.json"
+# RETROACHIEVEMENTS page (#171): the app logs in (RA's login API, password never stored) and writes the token, on/off
+# and hardcore into these two files (the ones roles retroarch122 / dreamcast write) plus the state file above; those
+# roles then skip what the app set (the cabinet wins). The app sends a password only to https://retroachievements.org
+# (#198; loopback http is a test hook of settings_app.py, never set here).
+settings_cheevos_files:   # internal: = retroarch122_cfg_dir/retroarch.cfg and dreamcast_emu_cfg (a test pins it)
+  retroarch: "{{ hk_cabinet_home }}/.config/retroarch/retroarch.cfg"
+  flycast: "{{ hk_cabinet_home }}/.config/flycast/emu.cfg"
+settings_cheevos_api: https://retroachievements.org/dorequest.php   # internal
+settings_fonts: [ArchivoBlack-Regular.ttf, Rajdhani-Bold.ttf, Rajdhani-SemiBold.ttf, PressStart2P-Regular.ttf]   # internal
+
+# Runtime libraries the app loads with ctypes (already on the cabinet: cage/ES-DE/RetroArch/powerd use them).
+settings_libs: [libSDL2-2.0.so.0, libcairo.so.2, libfreetype.so.6]   # internal
+settings_packages: []                 # internal: the VM installs them (inventory/vm.yml); the cabinet has them
+
+# Cabinet name: root helper with fixed paths, coindojo may run it with exactly one RFC 1123 label (sudo >= 1.9.10
+# regex arguments; ',' escaped for sudoers). The helper checks the name again.
+settings_helper_dest: "{{ hk_settings_helper_dest }}"
+settings_sudoers_file: /etc/sudoers.d/coin-dojo-settings   # internal
+# internal: the regex is the RFC 1123 label (hk_cabinet_hostname's pattern); the test pins its shape
+settings_sudoers_line: "{{ settings_user }} ALL=(root) NOPASSWD: {{ settings_helper_dest }} ^[a-z0-9]([a-z0-9-]{0\\,61}[a-z0-9])?$"
+# Cabinet password (#271): the PASSWORD page calls this root helper with NO arguments (sudoers `""` = exactly none) and the new
+# password on stdin. The helper sets the Linux and, when Samba is installed, the network folder's password.
+settings_password_helper_dest: /usr/local/sbin/coin-dojo-set-password   # internal
+settings_password_sudoers_line: '{{ settings_user }} ALL=(root) NOPASSWD: {{ settings_password_helper_dest }} ""'   # internal
+
+# Wi-Fi: NetworkManager polkit rule for coindojo at the cabinet's own seat (local + active session): scan, connect,
+# save/forget connections. Pi OS already allows settings.modify.system to sudo/netdev users; this rule makes the
+# app independent of that and adds nothing else.
+settings_polkit: "{{ hk_settings_polkit }}"
+settings_polkit_file: /etc/polkit-1/rules.d/50-coin-dojo-settings.rules   # internal
+settings_nmcli: "{{ hk_settings_nmcli }}"
+
+# Test VM only (no Wi-Fi hardware): install skills/settings/fake_nmcli.py and point the entry at it.
+settings_fake_nmcli: false   # internal: VM switch (ansible/inventory/vm.yml)
+# Test VM only (no collgen nested build there): write a small custom es_systems.xml with just the SETTINGS system
+# (only if the file is missing or ours) plus its link and gamelist. Never on the cabinet.
+settings_standalone_carousel: false   # internal: VM switch (ansible/inventory/vm.yml)
+settings_esde_home: "{{ hk_esde_home }}"
+settings_carousel_root: "{{ hk_nested_root }}"
+
+# Opens directly (#195): an ES-DE game-select script opens the app the moment the SETTINGS system is entered from the
+# carousel (its gamelist holds one entry), so there is no one-entry list in between. Needs CustomEventScripts,
+# CustomEventScriptsBrowsing on and CustomEventScriptsBrowsingNonBlocking off in es_settings (hk_esde_settings, role
+# cabinet_tweaks). The script returns at once for every other system. Why game-select: skills/settings/SKILL.md.
+settings_system_name: settings   # internal: = nested.SETTINGS_SLUG (a test pins it)
+settings_hook_file: "{{ settings_esde_home }}/scripts/game-select/50-coin-dojo-settings.sh"   # internal
+# the same script as a game-end script: after ES-DE's own launch of the entry it keeps the app from reopening
+settings_hook_end_file: "{{ settings_esde_home }}/scripts/game-end/50-coin-dojo-settings.sh"   # internal
+# #224: after the app the hook runs esde_return.py (in settings_dir): waits for the stick to be released, flushes the
+# presses ES-DE queued meanwhile (#220) and sends one Back (uinput keyboard, Backspace) -> ES-DE lands on the carousel.
+# Needs /dev/uinput root:input 0660 (role power, #211); without it it logs and sends nothing. false = old behaviour.
+settings_hook_back: true   # internal
+# #224: the same hook runs QUIT TO MAIN MENU on one press: entering the `quit` system runs `bash <script> menu`
+# (= nested.QUIT_COMMAND, the esde_collections role ships the script; a test pins both).
+settings_quit_system: quit   # internal: = nested.QUIT_SLUG
+settings_quit_script: "{{ hk_tools_dir }}/esde_entry.sh"   # internal: = esde_collections_entry_script
+
+# TIME ZONE (#206): hk_timezone is the default; a zone picked in the app (state file "timezone") wins (cabinet wins,
+# #189). The app runs `timedatectl set-timezone` itself: the polkit rule below allows that one action for the cabinet
+# user at the seat (no root helper, no sudoers line: timedated validates the name, the app checks it too).
+settings_timezone: "{{ hk_timezone }}"
+settings_polkit_timezone: true   # internal: the rule's second block (org.freedesktop.timedate1.set-timezone)

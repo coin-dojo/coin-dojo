@@ -1,0 +1,91 @@
+<!--
+    Theme capabilities for coin-dojo (COIN DOJO)
+    An original ES-DE 3.x theme for a six-button arcade cabinet.
+    Ships NO copyrighted artwork. Art CC BY-SA 4.0, code MIT. See README / LICENSE.
+
+    First-listed variant / colorScheme / aspectRatio is the default.
+-->
+
+<themeCapabilities>
+    <themeName>Coin Dojo</themeName>
+
+    <language>en_US</language>
+
+    <!-- Primary target is a 4:3 cabinet (1440x1080 pillarboxed). 16:9 degrades. -->
+    <aspectRatio>4:3</aspectRatio>
+    <aspectRatio>16:9</aspectRatio>
+
+    <fontSize>medium</fontSize>
+    <fontSize>large</fontSize>
+
+    <!-- Default look: violet-black world, gold lead + warm red, cream text -->
+    <colorScheme name="indigo">
+        <label language="en_US">Indigo (violet and gold)</label>
+    </colorScheme>
+
+    <!-- Alternate look: crimson-dominant -->
+    <colorScheme name="crimson">
+        <label language="en_US">Crimson (red dominant)</label>
+    </colorScheme>
+
+    <transitions name="instant">
+        <label language="en_US">Instant</label>
+        <selectable>true</selectable>
+        <systemToSystem>instant</systemToSystem>
+        <systemToGamelist>instant</systemToGamelist>
+        <gamelistToGamelist>instant</gamelistToGamelist>
+        <gamelistToSystem>instant</gamelistToSystem>
+        <startupToSystem>fade</startupToSystem>
+        <startupToGamelist>fade</startupToGamelist>
+    </transitions>
+
+    <transitions name="slide">
+        <label language="en_US">Slide</label>
+        <selectable>true</selectable>
+        <systemToSystem>slide</systemToSystem>
+        <systemToGamelist>slide</systemToGamelist>
+        <gamelistToGamelist>slide</gamelistToGamelist>
+        <gamelistToSystem>slide</gamelistToSystem>
+    </transitions>
+
+    <transitions name="fade">
+        <label language="en_US">Fade</label>
+        <selectable>true</selectable>
+        <systemToSystem>fade</systemToSystem>
+        <systemToGamelist>fade</systemToGamelist>
+        <gamelistToGamelist>fade</gamelistToGamelist>
+        <gamelistToSystem>fade</gamelistToSystem>
+    </transitions>
+
+    <suppressTransitionProfiles>
+        <entry>builtin-instant</entry>
+        <entry>builtin-slide</entry>
+        <entry>builtin-fade</entry>
+    </suppressTransitionProfiles>
+
+    <!-- Gamelist media variants. Status badges render in every variant (favorites are off). -->
+    <variant name="withVideos">
+        <label language="en_US">Game media with videos</label>
+        <selectable>true</selectable>
+        <override>
+            <trigger>noMedia</trigger>
+            <mediaType>miximage, screenshot, cover, titlescreen, video</mediaType>
+            <useVariant>noGameMedia</useVariant>
+        </override>
+    </variant>
+
+    <variant name="withoutVideos">
+        <label language="en_US">Game media without videos</label>
+        <selectable>true</selectable>
+        <override>
+            <trigger>noMedia</trigger>
+            <mediaType>miximage, screenshot, cover, titlescreen</mediaType>
+            <useVariant>noGameMedia</useVariant>
+        </override>
+    </variant>
+
+    <variant name="noGameMedia">
+        <label language="en_US">No game media</label>
+        <selectable>false</selectable>
+    </variant>
+</themeCapabilities>

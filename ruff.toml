@@ -1,0 +1,4 @@
+# ruff for coin-dojo (make lint, #124): pyflakes + syntax errors only; style is not enforced here.
+target-version = "py311"
+[lint]
+select = ["E9", "F"]

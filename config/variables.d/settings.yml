@@ -1,0 +1,43 @@
+# Area: settings. The SETTINGS app on the cabinet (Wi-Fi + cabinet name, stick/panel/keyboard) and the root helpers it uses.
+# The app's user, folder, ES-DE home and nested root come from the host and paths areas (their `exports` fill the
+# role's settings_* names), so only the settings-only levers are declared here.
+area: settings
+description: Cabinet name, the hostname helper, NetworkManager command and polkit rule of the SETTINGS app.
+variables:
+  hk_cabinet_hostname:
+    type: str
+    default: coindojo
+    pattern: "[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
+    description: >-
+      The cabinet's name on the network (`<name>.local`, also the network folder's address, #266), one RFC 1123
+      label: a-z, 0-9 and `-`, 1 to 63 characters, no `-` at either end. `make image` names the image with it. The
+      SETTINGS app lets you rename the cabinet; this is the name the preview and the VM show.
+    consumers: [skills/settings/Makefile]
+  hk_settings_helper_dest:
+    type: path
+    default: /usr/local/sbin/coin-dojo-set-hostname
+    description: >-
+      Where the root helper that renames the cabinet is installed. The sudoers line allows the cabinet user to run
+      exactly this path with one valid name.
+    consumers: [ansible/roles/settings]
+  hk_settings_nmcli:
+    type: str
+    default: nmcli
+    description: The NetworkManager command line tool the SETTINGS app calls for Wi-Fi (a name on PATH or an absolute path).
+    consumers: [ansible/roles/settings]
+  hk_settings_polkit:
+    type: bool
+    default: true
+    description: >-
+      Install the NetworkManager polkit rule that lets the cabinet user scan, connect and save Wi-Fi at the cabinet's own
+      seat. The test VM has no NetworkManager and switches it off in ansible/inventory/vm.yml.
+    consumers: [ansible/roles/settings]
+  hk_timezone:
+    type: str
+    default: Etc/UTC
+    pattern: "[A-Za-z0-9][A-Za-z0-9_+-]*(/[A-Za-z0-9][A-Za-z0-9_+-]*){0,2}"
+    description: >-
+      The cabinet's time zone (`timedatectl list-timezones`, e.g. `Europe/Berlin`). The settings role applies it with
+      `timedatectl set-timezone` only when the cabinet has none of its own: a zone picked on the cabinet (SETTINGS, TIME
+      ZONE) is kept in the state file and wins over this value on every deploy. Set yours in your local config.
+    consumers: [ansible/roles/settings]

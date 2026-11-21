@@ -1,0 +1,27 @@
+# Pinned smoke games for `make smoke-launch` (#48): the community example, no game pinned (#190). Pin ONE ROM
+# per system you own, the file name inside /data/roms/<system>/. A private checkout keeps its own table in
+# personal/tests/smoke/smoke_games.tsv, which smoke_launch.py reads instead of this file.
+# Columns (tab separated): system, rom, vm_rom, wait, motion.
+#   system  every key of skills/collections/launch_expected.json (tests/smoke/test_smoke_launch.py checks both ways)
+#   rom     file on the cabinet; "-" = no game pinned (the system has no ROMs there): SKIP, never PASS
+#   vm_rom  file in the VM (LIMIT=coin-dojo-vm); "-" = none, SKIP. The VM never holds real games: only our own
+#           generated NES test ROM (vm/guest/mknesrom.py), so only nes runs there.
+#   wait    seconds until the alive check + first shot (default 10; a slow boot gets more)
+#   motion  yes = the second shot (3 s later) must differ; no = the picture is static by design (a splash)
+arcade	-	-	10	yes
+atari2600	-	-	10	yes
+cps1	-	-	10	yes
+cps2	-	-	10	yes
+cps3	-	-	20	no
+dreamcast	-	-	10	yes
+fbneo	-	-	10	no
+genesis	-	-	10	yes
+n64	-	-	10	yes
+naomi	-	-	10	yes
+neogeo	-	-	10	yes
+nes	-	coin-dojo-smoke.nes	10	yes
+pcengine	-	-	10	yes
+psx	-	-	20	no
+saturn	-	-	10	yes
+segacd	-	-	10	yes
+snes	-	-	10	yes

@@ -1,0 +1,8 @@
+# Restarts only the TROPHIES overlay daemon (#177); never the cage/ES-DE session.
+- name: Restart trophiesd
+  ansible.builtin.systemd:
+    name: "{{ trophiesd_unit_name }}"
+    state: restarted
+    daemon_reload: true
+  become: true
+  when: trophiesd_enable | bool and not ansible_check_mode and not coin_dojo_image | default(false) | bool

@@ -1,0 +1,93 @@
+<!--
+    Color schemes for coin-dojo.
+    Color scheme variables parse before general configuration, so these
+    ${...} tokens are safe to reference from theme.xml element definitions.
+
+    Palette (#43), tuned to a violet-blue backdrop with warm accents:
+      gold FFC94D = the lead accent (selector, labels, counters; complements the violet art)
+      red  E23B3B/FF6B5A = crimson red, secondary (right panel stripe, list secondary, crimson scheme)
+      cream FFF4DC = primary text, lavender C9C0EA = muted text, violet-black 0E0822 = base
+    Cyan is kept only for small details (GENRE chip). Every list/metadata text colour is checked
+    against its panel by themes/tests/test_palette_contrast.py (>= 4.5:1).
+    "indigo" is the default scheme; "crimson" (red-led) is selectable under Theme color scheme.
+-->
+<theme>
+    <colorScheme name="indigo">
+        <variables>
+            <!-- global -->
+            <baseColor>0E0822FF</baseColor>
+            <bgTint>FFFFFF</bgTint>
+            <deckTint>FFFFFF</deckTint>
+            <brandTint>FFFFFF</brandTint>
+            <textPrimary>FFF4DC</textPrimary>
+            <textMuted>C9C0EA</textMuted>
+            <clockColor>C9C0EA</clockColor>
+
+            <!-- system view -->
+            <carouselText>FFF4DC</carouselText>
+            <carouselPanel>00000000</carouselPanel>
+            <gameCounterColor>FFC94D</gameCounterColor>
+            <gameCounterBg>2A0B22D8</gameCounterBg>
+            <systemTitleColor>FFF4DC</systemTitleColor>
+
+            <!-- gamelist panels + list -->
+            <panelTint>FFFFFF</panelTint>
+            <panelRedTint>FFFFFF</panelRedTint>
+            <listSelector>FFC94DFF</listSelector>
+            <listSelected>1A0A22FF</listSelected>
+            <listPrimary>FFF4DC</listPrimary>
+            <listSecondary>FF8F78</listSecondary>
+
+            <!-- metadata -->
+            <labelColor>FFC94D</labelColor>
+            <valueColor>FFF4DC</valueColor>
+            <descColor>E4DCF7</descColor>
+            <ratingColor>FFC94D</ratingColor>
+            <badgeColor>C9C0EA</badgeColor>
+            <gamelistInfoColor>FFC94D</gamelistInfoColor>
+            <collectionHeaderColor>C9C0EA</collectionHeaderColor>
+
+            <!-- help -->
+            <helpColor>FFF4DC</helpColor>
+            <helpIcon>FFC94D</helpIcon>
+            <helpDimmed>8A7FB0</helpDimmed>
+        </variables>
+    </colorScheme>
+
+    <colorScheme name="crimson">
+        <variables>
+            <baseColor>1A0608FF</baseColor>
+            <bgTint>FFFFFF</bgTint>
+            <deckTint>FFE6E6</deckTint>
+            <brandTint>FFFFFF</brandTint>
+            <textPrimary>FFF1E6</textPrimary>
+            <textMuted>E0B4B8</textMuted>
+            <clockColor>E0B4B8</clockColor>
+
+            <carouselText>FFF1E6</carouselText>
+            <carouselPanel>00000000</carouselPanel>
+            <gameCounterColor>FFC94D</gameCounterColor>
+            <gameCounterBg>4A1420D8</gameCounterBg>
+            <systemTitleColor>FFF1E6</systemTitleColor>
+
+            <panelTint>FFE6E6</panelTint>
+            <panelRedTint>FFFFFF</panelRedTint>
+            <listSelector>C8202FFF</listSelector>
+            <listSelected>FFFFFFFF</listSelected>
+            <listPrimary>FFF1E6</listPrimary>
+            <listSecondary>FFC94D</listSecondary>
+
+            <labelColor>FFC94D</labelColor>
+            <valueColor>FFF1E6</valueColor>
+            <descColor>EBD0D2</descColor>
+            <ratingColor>FFC94D</ratingColor>
+            <badgeColor>E0B4B8</badgeColor>
+            <gamelistInfoColor>FF8F78</gamelistInfoColor>
+            <collectionHeaderColor>E0B4B8</collectionHeaderColor>
+
+            <helpColor>FFF1E6</helpColor>
+            <helpIcon>FF8F78</helpIcon>
+            <helpDimmed>8A5560</helpDimmed>
+        </variables>
+    </colorScheme>
+</theme>

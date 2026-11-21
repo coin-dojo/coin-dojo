@@ -1,0 +1,28 @@
+# esde_common (#89): runs first for every ES-DE deploy tag (site.yml). It writes nothing.
+# 1. Game guard: no cabinet write while RetroArch (also the 1.22 AppImage) or flycast runs, or the session is in
+#    Fightcade mode (current-mode = fightcade, #209).
+# 2. One backup stamp per run, so every role backs up into <esde_backup_root>/<stamp>-<what>/.
+# The handler `restart es-de` (handlers/main.yml) is the only place ES-DE is restarted.
+
+- name: Look for a running game (pgrep -x names, pgrep -f patterns)
+  ansible.builtin.shell:
+    cmd: >-
+      command -v {{ esde_pgrep | quote }} >/dev/null || { echo "NO PGREP: cannot tell whether a game runs"; exit 0; };
+      {% for p in esde_game_procs %}{{ esde_pgrep | quote }} -a -x {{ p | quote }};{% endfor %}
+      {% for p in esde_game_patterns %}{{ esde_pgrep | quote }} -a -f {{ p | quote }};{% endfor %}
+      grep -qsx fightcade {{ esde_session_cur | quote }} && {{ esde_session_live }} && echo "the session is in Fightcade mode ({{ esde_session_cur }})"; true
+  register: esde_game_running
+  changed_when: false
+  check_mode: false
+
+- name: Refuse to deploy while a game is running (quit it with Select+Start, then re-run)
+  ansible.builtin.assert:
+    that: esde_game_running.stdout | trim | length == 0
+    fail_msg: "ABORT: a game is running ({{ esde_game_running.stdout_lines | join('; ') }}); nothing was written. Quit it (Select+Start), then re-run."
+    quiet: true
+
+- name: One backup stamp for this run
+  ansible.builtin.set_fact:
+    esde_stamp: "{{ lookup('ansible.builtin.pipe', 'date +%Y%m%d-%H%M%S') }}"
+    esde_restarted: false
+  when: esde_stamp is not defined

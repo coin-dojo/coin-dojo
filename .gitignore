@@ -1,0 +1,44 @@
+# Images — never commit the SD-card images (large, and may contain keys/passwords)
+*.img
+*.img.*
+*.iso
+*.zip
+*.gz
+*.xz
+*.bz2
+*.dmg
+
+# Secrets — belong in the macOS Keychain or the NAS .env, never here
+.env
+.env.*
+*.key
+*.pem
+id_*
+*_rsa
+*_ed25519
+authorized_keys
+secrets/
+**/secret*
+# the gitleaks wrapper (#124) is not a secret
+!tools/secrets-scan.sh
+
+# Large binaries / backups
+*.tar
+*.bin
+backups/
+*.bak
+
+# OS / editor noise
+.DS_Store
+._*
+*.swp
+*~
+.idea/
+.vscode/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Local configuration (a contributor's overrides; config/local.example.yml is the template)
+config/local.yml

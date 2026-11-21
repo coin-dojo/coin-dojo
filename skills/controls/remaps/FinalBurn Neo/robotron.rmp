@@ -1,0 +1,24 @@
+# Robotron: 2084 twin stick (#59, first test written 2026-11-14; the twinstick card is marked tested).
+# Game remap for the ROM stem `robotron`. FBNeo special-cases robotron and bwidow (retro_input.cpp): P1's
+# Fire Up/Down/Left/Right sit on P1's RIGHT analog stick. The P2 stick is its own device (js1 = user 2), so
+# input_remap_port_p2 = "0" makes user 2 feed core port 1 (P1), and its d-pad becomes P1's right-analog
+# directions: up -> 23 (R-Y-), down -> 22 (R-Y+), left -> 21 (R-X-), right -> 20 (R-X+).
+# Result: P1 stick moves, P2 stick fires in 8 directions. One player only (P2 has no own port in this game).
+# Captured as-is from the cabinet 2026-11-14 (Platform #56 found it live); the device/analog_dpad_mode/port 3-4
+# lines are RetroArch's defaults written on save.
+input_libretro_device_p1 = "1"
+input_libretro_device_p2 = "1"
+input_libretro_device_p3 = "1"
+input_libretro_device_p4 = "1"
+input_player1_analog_dpad_mode = "0"
+input_player2_analog_dpad_mode = "0"
+input_player2_btn_down = "22"
+input_player2_btn_left = "21"
+input_player2_btn_right = "20"
+input_player2_btn_up = "23"
+input_player3_analog_dpad_mode = "0"
+input_player4_analog_dpad_mode = "0"
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "0"
+input_remap_port_p3 = "2"
+input_remap_port_p4 = "3"

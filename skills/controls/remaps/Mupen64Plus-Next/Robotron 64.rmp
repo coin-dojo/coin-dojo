@@ -1,0 +1,15 @@
+# Robotron 64 twin stick (#59, #64, NOT TESTED). The game moves on the analog stick and fires with the
+# four C buttons; Mupen64Plus-Next's right analog IS the C buttons. So: user 2 feeds core port 1 and the
+# P2 stick's d-pad becomes the right analog: up 23 = C-Up, down 22 = C-Down, left 21 = C-Left,
+# right 20 = C-Right (fire in 8 directions, diagonals = two C buttons). A game remap replaces the core
+# remap, so player 1's six buttons repeat Mupen64Plus-Next.rmp (the N64 default panel).
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "0"
+input_player1_btn_x = "23"
+input_player1_btn_l = "11"
+input_player1_btn_a = "12"
+input_player1_btn_r = "22"
+input_player2_btn_up = "23"
+input_player2_btn_down = "22"
+input_player2_btn_left = "21"
+input_player2_btn_right = "20"

@@ -1,0 +1,22 @@
+{
+ "about": "#62: the exact argv launch.py must build per system; {rom} = the ROM's real path. Recorded with launch_check.py --emit from the cabinet's hot-patched launch.py (sha256 6fa6ef6d..., 2026-11-14 20:52, fixture tests/fixtures/launch_live_20261114.py). The launcher role checks the staged and the installed file against it.",
+ "systems": {
+  "arcade":    ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/mame_libretro.so", "{rom}"],
+  "atari2600": ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/stella_libretro.so", "{rom}"],
+  "cps1":      ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/fbneo_libretro.so", "{rom}"],
+  "cps2":      ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/fbneo_libretro.so", "{rom}"],
+  "cps3":      ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/fbneo_libretro.so", "{rom}"],
+  "dreamcast": ["/data/emulators/flycast/flycast-run.sh", "{rom}"],
+  "fbneo":     ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/fbneo_libretro.so", "{rom}"],
+  "genesis":   ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/genesis_plus_gx_libretro.so", "{rom}"],
+  "n64":       ["/data/emulators/retroarch-1.22/retroarch", "-L", "/data/emulators/mupen64plus-gles/mupen64plus_next_libretro.so", "{rom}"],
+  "naomi":     ["/data/emulators/flycast/flycast-run.sh", "{rom}"],
+  "neogeo":    ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/fbneo_libretro.so", "{rom}"],
+  "nes":       ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/nestopia_libretro.so", "{rom}"],
+  "pcengine":  ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/mednafen_pce_libretro.so", "{rom}"],
+  "psx":       ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/pcsx_rearmed_libretro.so", "{rom}"],
+  "saturn":    ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/mednafen_saturn_libretro.so", "{rom}"],
+  "segacd":    ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/genesis_plus_gx_libretro.so", "{rom}"],
+  "snes":      ["/data/emulators/retroarch-1.22/retroarch", "-L", "/usr/lib/aarch64-linux-gnu/libretro/snes9x_libretro.so", "{rom}"]
+ }
+}

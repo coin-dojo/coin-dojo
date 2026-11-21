@@ -1,0 +1,22 @@
+--- a/gfx/common/egl_common.c
++++ b/gfx/common/egl_common.c
+@@ -577,7 +577,9 @@ bool egl_init_context_common(
+       return false;
+    }
+ 
+-   for (i = 0; i < *count; i++)
++   /* coin-dojo: only the first `matched` entries are filled by eglChooseConfig; reading past them
++    * passes garbage configs to cb and segfaults (GLES2 path on Pi 5 v3d / Wayland, RetroArch 1.22.2). */
++   for (i = 0; i < matched; i++)
+    {
+       if (!cb || cb(display_data, egl->dpy, configs[i]))
+       {
+@@ -587,7 +589,7 @@ bool egl_init_context_common(
+ 
+    free(configs);
+ 
+-   if (i == *count)
++   if (i == matched)
+    {
+       RARCH_ERR("[EGL] No EGL config found which satisfies requirements.\n");
+       return false;

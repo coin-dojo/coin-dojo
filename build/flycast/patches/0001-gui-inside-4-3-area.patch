@@ -1,0 +1,28 @@
+diff --git a/core/ui/gui.cpp b/core/ui/gui.cpp
+index b3da1be..212f973 100644
+--- a/core/ui/gui.cpp
++++ b/core/ui/gui.cpp
+@@ -43,6 +43,7 @@
+ #include "IconsFontAwesome6.h"
+ #include <stb_image_write.h>
+ #include "hw/pvr/Renderer_if.h"
++#include <cstdlib>
+ #include "rend/CustomTexture.h"
+ #include "hw/mem/addrspace.h"
+ #include "hw/maple/maple_if.h"
+@@ -312,6 +313,15 @@ static void gui_newFrame()
+ 	imguiDriver->newFrame();
+ 	ImGui::GetIO().DisplaySize.x = settings.display.width;
+ 	ImGui::GetIO().DisplaySize.y = settings.display.height;
++	// coin-dojo: FLYCAST_GUI_43=1 keeps the GUI inside the centred 4:3 area of a wider panel
++	// (the cabinet bezel hides the sides) by turning the side margins into safe-area insets.
++	static const bool gui43 = [] { const char *v = std::getenv("FLYCAST_GUI_43"); return v != nullptr && v[0] == '1'; }();
++	if (gui43)
++	{
++		const int w43 = settings.display.height * 4 / 3;
++		const int side = settings.display.width > w43 ? (settings.display.width - w43) / 2 : 0;
++		gui_set_insets(side, side, insetTop, insetBottom);
++	}
+ 
+ 	ImGuiIO& io = ImGui::GetIO();
+ 

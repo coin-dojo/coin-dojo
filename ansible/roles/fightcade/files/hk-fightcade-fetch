@@ -1,0 +1,598 @@
+#!/usr/bin/env python3
+"""hk-fightcade-fetch (#267): install Fightcade mode's third-party software on the cabinet, the first time FIGHTCADE
+is picked (hk_fightcade_install: first-launch). Installed root-owned by the ansible role `fightcade` to
+/usr/local/lib/coin-dojo-fightcade; run as the cabinet user (never root: the trees live on its data partition) by
+hk_fc_firstrun.py (the full-screen consent + progress screen), or by the owner over ssh.
+
+    hk-fightcade-fetch --check              exit 0 = installed and current, 10 = downloads needed, 11 = only local steps
+    hk-fightcade-fetch --plan               one JSON line: what is missing, bytes to download, MiB needed / free
+    hk-fightcade-fetch --yes [--progress]   download + install (--yes = the player pressed START, or the owner ran it)
+
+What it does, from the role's manifest (/usr/local/etc/coin-dojo-fightcade-fetch.json; HK_FC_FETCH_MANIFEST):
+  1. one run at a time (lock in the staging dir); leftovers of a killed run are removed (<dest>.new.N / .old.N trees of
+     hk-fightcade-unpack, staging files of another pin). A finished or partial download of the current pin is KEPT.
+  2. free space: refuse unless the data partition has the downloads still missing + each archive unpacked + the base
+     prefix + a margin (a fresh install: about 2.1 GiB). Nothing is downloaded then.
+  3. download every archive that is not installed: ONLY the manifest's pinned urls (Wine, Electron, Fightcade; never
+     anything else, never a ROM), https only (a redirect to anything else is refused), into <file>.part, resumed with
+     a Range request next time (the 206's Content-Range must start at our byte; a 416 or a wrong start deletes the
+     .part and fetches it again from 0), stopped at the pinned size; then sha256 against the pin: a mismatch deletes
+     it, a match is renamed to <file> (atomic). Every download is checked before anything is unpacked. Every pin is a
+     versioned url (Fightcade's too, since #267's review), so a size or sha256 mismatch means the file is damaged or
+     changed upstream: a checksum error, never "network error".
+  4. unpack each with hk-fightcade-unpack (sha256 checked again, all or nothing, the deploy's own --strip/--link/--dist/
+     --patch recipe and stamp), delete the archive.
+  5. the deploy's local steps: emulator .exe files 0755, nativefier.json = Fightcade's own + the role's keys, the
+     lobby CSS and keyboard script, the FBNeo base ini (the role's hk_fbneo_ini filter, same keys), then the base Wine
+     prefix (hk-fightcade-prefix) when its stamp differs.
+  6. --check again; anything still missing is an error.
+Every step is idempotent: a run after an interruption (TERM, power cut, no network) continues where it stopped, and the
+launcher never starts Fightcade before --check says 0.
+
+--progress: one JSON event per line on stdout ({"ev": "plan"|"download"|"step"|"done"|"error", ...}); the log goes to
+<logs>/fetch.log and stderr. Tests/VM proof only: HK_FC_FETCH_URL_PREFIX=<an https mirror dir> replaces each url's
+directory (a local mirror of the same files; the sha256 and size pins still apply, and it must be https),
+HK_FC_FETCH_CAFILE trusts that mirror's CA, HK_FC_ALLOW_ROOT=1 lets the container tests run as root.
+Exit codes: 0 ok, 1 failed (unpack, prefix, other), 2 usage or bad manifest, 3 sha256/size mismatch, 4 network,
+5 not enough free space, 6 run as root, 7 another run holds the lock, 143 TERM.
+"""
+import errno
+import fcntl
+import hashlib
+import http.client
+import importlib.util
+import json
+import os
+import re
+import shutil
+import signal
+import socket
+import ssl
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+MANIFEST = os.environ.get("HK_FC_FETCH_MANIFEST", "/usr/local/etc/coin-dojo-fightcade-fetch.json")
+MIB = 1024 * 1024
+CHUNK = 256 * 1024
+TIMEOUT = 30                      # seconds without a byte = a network error (the .part stays for the next run)
+USER_AGENT = "coin-dojo-fightcade-fetch/1"
+EXIT = {"failed": 1, "usage": 2, "manifest": 2, "checksum": 3, "network": 4, "space": 5, "root": 6, "busy": 7}
+
+
+class Fail(Exception):
+    def __init__(self, kind, text):
+        super().__init__(text)
+        self.kind, self.text = kind, text
+
+
+# ---- output -----------------------------------------------------------------------------------------------------
+class Out:
+    def __init__(self, progress=False, log_dir=None):
+        self.progress = progress
+        self.log = None
+        self.last = 0.0
+        if log_dir:
+            try:
+                self.log = open(os.path.join(log_dir, "fetch.log"), "a", encoding="utf-8")
+            except OSError:
+                self.log = None
+
+    def say(self, text):
+        line = "%s hk-fightcade-fetch[%d]: %s" % (time.strftime("%F %T"), os.getpid(), text)
+        print(line, file=sys.stderr, flush=True)
+        if self.log:
+            self.log.write(line + "\n")
+            self.log.flush()
+
+    def event(self, ev, force=True, **kw):
+        if not self.progress:
+            return
+        now = time.monotonic()
+        if not force and now - self.last < 0.2:
+            return
+        self.last = now
+        kw["ev"] = ev
+        sys.stdout.write(json.dumps(kw, sort_keys=True) + "\n")
+        sys.stdout.flush()
+
+
+# ---- manifest ---------------------------------------------------------------------------------------------------
+_HEX = re.compile(r"^[0-9a-f]{64}$")
+_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+
+
+def manifest_problems(m):
+    """Why a manifest is unusable ([] = fine). Only https urls, plain file/dest names, 64-hex pins, sizes > 0."""
+    p = []
+    if not isinstance(m, dict):
+        return ["not a JSON object"]
+    for k in ("install_dir", "staging", "logs", "conf", "unpack", "prefix_cmd", "ini_module", "exe_dir"):
+        if not isinstance(m.get(k), str) or not m[k].startswith("/"):
+            p.append("%s is not an absolute path" % k)
+    arch = m.get("archives")
+    if not isinstance(arch, list) or not arch:
+        return p + ["no archives"]
+    for a in arch:
+        n = a.get("name", "?") if isinstance(a, dict) else "?"
+        if not isinstance(a, dict):
+            p.append("an archive is not an object")
+            continue
+        u = urllib.parse.urlsplit(str(a.get("url", "")))
+        if u.scheme != "https" or not u.hostname:
+            p.append("%s: url %r is not https" % (n, a.get("url")))
+        if not _NAME.match(str(a.get("file", ""))) or not _NAME.match(str(a.get("dest", ""))):
+            p.append("%s: file/dest must be plain names" % n)
+        if not _HEX.match(str(a.get("sha256", ""))):
+            p.append("%s: sha256 is not 64 hex digits" % n)
+        if not isinstance(a.get("size"), int) or a["size"] <= 0:
+            p.append("%s: size must be a positive number of bytes" % n)
+        if not isinstance(a.get("stamp"), str) or not a["stamp"]:
+            p.append("%s: no stamp" % n)
+    for k in ("nativefier", "ini", "prefix"):
+        if not isinstance(m.get(k), dict):
+            p.append("%s missing" % k)
+    return p
+
+
+def load_manifest(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            m = json.load(fh)
+    except (OSError, ValueError) as e:
+        raise Fail("manifest", "cannot read the Fightcade download list %s: %s" % (path, e))
+    probs = manifest_problems(m)
+    if probs:
+        raise Fail("manifest", "the Fightcade download list %s is broken: %s" % (path, "; ".join(probs)))
+    return m
+
+
+def url_for(a):
+    pre = os.environ.get("HK_FC_FETCH_URL_PREFIX", "")
+    if not pre:
+        return a["url"]
+    if urllib.parse.urlsplit(pre).scheme != "https":
+        raise Fail("manifest", "HK_FC_FETCH_URL_PREFIX must be https: %s" % pre)
+    return pre.rstrip("/") + "/" + a["file"]
+
+
+def host_of(a):
+    return urllib.parse.urlsplit(a["url"]).hostname or "?"
+
+
+# ---- state ------------------------------------------------------------------------------------------------------
+def sha256_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for b in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def read(path, default=""):
+    try:
+        with open(path, encoding="utf-8", newline="") as fh:
+            return fh.read()
+    except OSError:
+        return default
+
+
+def installed(m, a):
+    return read(os.path.join(m["install_dir"], a["dest"], ".hk-stamp")).strip() == a["stamp"]
+
+
+def staged(m, a):
+    """Bytes of this pin already downloaded (a finished file counts as its size)."""
+    f = os.path.join(m["staging"], a["file"])
+    if os.path.isfile(f) and os.path.getsize(f) == a["size"]:
+        return a["size"]
+    try:
+        return min(os.path.getsize(f + ".part"), a["size"])
+    except OSError:
+        return 0
+
+
+def load_ini_filter(m):
+    spec = importlib.util.spec_from_file_location("hk_fbneo_ini", m["ini_module"])
+    if spec is None or spec.loader is None:
+        raise Fail("manifest", "missing %s" % m["ini_module"])
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except OSError as e:
+        raise Fail("manifest", "missing %s: %s" % (m["ini_module"], e))
+    return mod.hk_fbneo_ini
+
+
+def nativefier_want(m):
+    path = m["nativefier"]["path"]
+    try:
+        with open(path + ".dist", encoding="utf-8") as fh:
+            base = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    base.update(m["nativefier"]["keys"])       # Ansible's combine(): top-level keys replace (not recursive)
+    return json.dumps(base, sort_keys=True) + "\n"
+
+
+def ini_want(m):
+    dist = read(m["ini"]["dist"], None)
+    return None if dist is None else load_ini_filter(m)(dist, m["ini"]["overrides"])
+
+
+def exes_not_755(m):
+    """Emulator .exe files that are not 0755 (fcade execs them directly, #228). Symlinks and other filesystems are
+    never followed (find -P -xdev)."""
+    top = m["exe_dir"]
+    out = []
+    try:
+        dev = os.lstat(top).st_dev
+    except OSError:
+        return out
+    for root, dirs, files in os.walk(top):
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))
+                   and os.lstat(os.path.join(root, d)).st_dev == dev]
+        for f in files:
+            p = os.path.join(root, f)
+            if f.lower().endswith(".exe") and not os.path.islink(p) and (os.lstat(p).st_mode & 0o7777) != 0o755:
+                out.append(p)
+    return out
+
+
+def local_todo(m):
+    """The deploy's local steps that are not done (names), for --check and the final check."""
+    todo = []
+    if exes_not_755(m):
+        todo.append("exe modes")
+    want = nativefier_want(m)
+    if want is None or read(m["nativefier"]["path"]) != want:
+        todo.append("nativefier.json")
+    for f in m.get("files", []):
+        if read(f["path"], None) != f["text"]:
+            todo.append(os.path.basename(f["path"]))
+    want = ini_want(m)
+    if want is None or read(m["ini"]["base"], None) != want:
+        todo.append("FBNeo base ini")
+    if read(os.path.join(m["prefix"]["path"], ".hk-stamp")).strip() != m["prefix"]["stamp"]:
+        todo.append("Wine prefix")
+    return todo
+
+
+def free_mib(path):
+    d = path
+    while not os.path.isdir(d):
+        d = os.path.dirname(d)
+    st = os.statvfs(d)
+    return st.f_bavail * st.f_frsize // MIB
+
+
+def plan(m):
+    pieces, download, need = [], 0, 0
+    for a in m["archives"]:
+        done = installed(m, a)
+        have = 0 if done else staged(m, a)
+        if not done:
+            download += a["size"] - have
+            need += (a["size"] - have) / float(MIB) + a.get("install_mib", 0)
+        pieces.append({"name": a["name"], "title": a.get("title", a["name"]), "host": host_of(a), "size": a["size"],
+                       "installed": done, "have": have})
+    prefix_ok = read(os.path.join(m["prefix"]["path"], ".hk-stamp")).strip() == m["prefix"]["stamp"]
+    if not prefix_ok:
+        need += m["prefix"].get("mib", 0)
+    need = int(need + 0.999) + (m.get("margin_mib", 0) if (download or not prefix_ok) else 0)
+    # todo_bytes = the "All downloads" bar's total (every archive not installed yet, whether partly downloaded or not)
+    return {"pieces": pieces, "download_bytes": download, "total_bytes": sum(a["size"] for a in m["archives"]),
+            "todo_bytes": sum(a["size"] for a in m["archives"] if not installed(m, a)),
+            "need_mib": need, "free_mib": free_mib(m["install_dir"]),
+            "downloads_needed": any(not p["installed"] and p["have"] < p["size"] for p in pieces)}
+
+
+def check(m):
+    """0 = installed and current, 10 = something must be downloaded, 11 = only local steps (unpack a finished
+    download, lobby files, ini, prefix)."""
+    if any(not installed(m, a) for a in m["archives"]):
+        return 10 if plan(m)["downloads_needed"] else 11
+    return 11 if local_todo(m) else 0
+
+
+# ---- steps ------------------------------------------------------------------------------------------------------
+class HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlsplit(newurl).scheme != "https":
+            raise Fail("network", "the server redirected to a url that is not https (%s): refused" % newurl.split("?")[0])
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def opener():
+    ctx = ssl.create_default_context(cafile=os.environ.get("HK_FC_FETCH_CAFILE") or None)
+    return urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx), HttpsOnlyRedirect())
+
+
+def changed_upstream(a, title, host, what):
+    """A pinned file that is not the pinned file (damaged, or changed upstream): a checksum error, nothing kept."""
+    return Fail("checksum", "%s from %s %s: it was deleted, nothing was installed. If this happens again, the file "
+                "changed upstream and coin-dojo needs a new pin." % (title, host, what))
+
+
+def _content_range(value):
+    """'bytes START-END/TOTAL' -> (start, end, total or None); None when it does not parse."""
+    mm = re.match(r"^bytes (\d+)-(\d+)/(\d+|\*)$", (value or "").strip())
+    if not mm:
+        return None
+    return int(mm.group(1)), int(mm.group(2)), None if mm.group(3) == "*" else int(mm.group(3))
+
+
+def _fetch(a, url, part, have, out, done_before, all_total):
+    """One GET into <part> from byte <have>. Returns "restart" when the .part cannot be resumed (it was deleted)."""
+    title, host = a.get("title", a["name"]), host_of(a)
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    if have:
+        req.add_header("Range", "bytes=%d-" % have)
+    out.say("downloading %s from %s (%d of %d bytes already here)" % (title, host, have, a["size"]))
+    try:
+        with opener().open(req, timeout=TIMEOUT) as r:
+            if have and r.status == 206:
+                cr = _content_range(r.headers.get("Content-Range"))
+                if cr is None or cr[0] != have:
+                    out.say("the server's Content-Range %r does not start at byte %d: starting over"
+                            % (r.headers.get("Content-Range"), have))
+                    os.remove(part)
+                    return "restart"
+                if cr[2] is not None and cr[2] != a["size"]:
+                    os.remove(part)
+                    raise changed_upstream(a, title, host, "is %d bytes upstream, pinned %d" % (cr[2], a["size"]))
+            elif have:                              # the server ignored the Range: start over
+                have = 0
+            if not have:
+                clen = r.headers.get("Content-Length")
+                if clen and clen.isdigit() and int(clen) != a["size"]:
+                    if os.path.exists(part):
+                        os.remove(part)
+                    raise changed_upstream(a, title, host, "is %s bytes upstream, pinned %d" % (clen, a["size"]))
+            with open(part, "ab" if have else "wb") as fh:
+                got = have
+                while True:
+                    b = r.read(CHUNK)
+                    if not b:
+                        break
+                    if got + len(b) > a["size"]:
+                        fh.close()
+                        os.remove(part)
+                        raise changed_upstream(a, title, host, "is bigger than its pinned size (%d bytes)" % a["size"])
+                    fh.write(b)
+                    got += len(b)
+                    out.event("download", force=False, name=a["name"], title=title, host=host, done=got,
+                              total=a["size"], all_done=done_before + got, all_total=all_total)
+                fh.flush()
+                os.fsync(fh.fileno())
+    except urllib.error.HTTPError as e:
+        if e.code == 416 and have:                  # the server will not resume this .part (a short one is never whole)
+            out.say("the server refused to resume %s at byte %d (416): deleting the .part, starting over" % (title, have))
+            os.remove(part)
+            return "restart"
+        raise Fail("network", "could not download %s from %s: the server answered %d %s. Pick FIGHTCADE "
+                   "again later; what was downloaded is kept." % (title, host, e.code, e.reason))
+    except (urllib.error.URLError, socket.timeout, ssl.SSLError, ConnectionError, TimeoutError,
+            http.client.HTTPException) as e:          # HTTPException: IncompleteRead, a broken status line
+        reason = getattr(e, "reason", e)
+        raise Fail("network", "could not reach %s to download %s (%s). Check the internet connection (SETTINGS > "
+                   "WI-FI) and pick FIGHTCADE again; what was downloaded is kept." % (host, title, reason))
+    return "ok"
+
+
+def download(m, a, out, done_before, all_total):
+    """<staging>/<file>.part -> sha256 -> <staging>/<file>. Resumes a .part (Range, Content-Range checked); a .part the
+    server will not resume is deleted and fetched again from byte 0, once. Never writes past the pinned size."""
+    final = os.path.join(m["staging"], a["file"])
+    part = final + ".part"
+    title, host = a.get("title", a["name"]), host_of(a)
+    if os.path.isfile(final) and os.path.getsize(final) == a["size"]:
+        return
+    url = url_for(a)
+    if urllib.parse.urlsplit(url).scheme != "https":
+        raise Fail("manifest", "%s: url is not https" % title)
+    for _ in range(2):
+        have = os.path.getsize(part) if os.path.isfile(part) else 0
+        if have > a["size"]:
+            os.remove(part)
+            have = 0
+        if have == a["size"] or _fetch(a, url, part, have, out, done_before, all_total) == "ok":
+            break
+    size = os.path.getsize(part) if os.path.isfile(part) else 0
+    if size != a["size"]:
+        raise Fail("network", "the download of %s from %s stopped at %d of %d bytes. Pick FIGHTCADE again to resume."
+                   % (title, host, size, a["size"]))
+    got = sha256_of(part)
+    if got != a["sha256"]:
+        os.remove(part)
+        raise changed_upstream(a, title, host, "does not match its pinned sha256 (got %s...)" % got[:12])
+    os.replace(part, final)
+    out.event("download", name=a["name"], title=title, host=host, done=a["size"], total=a["size"],
+              all_done=done_before + a["size"], all_total=all_total)
+    out.say("downloaded %s, sha256 ok" % title)
+
+
+def unpack(m, a, out):
+    title = a.get("title", a["name"])
+    out.event("step", name="unpack", text="Unpacking %s" % title)
+    src = os.path.join(m["staging"], a["file"])
+    cmd = [m["unpack"], "--strip", str(a.get("strip", 0))]
+    for link in a.get("links", []):
+        cmd += ["--link", "%s=%s" % (link["path"], link["to"])]
+    for d in a.get("dist", []):
+        cmd += ["--dist", d]
+    for x in a.get("patches", []):
+        cmd += ["--patch", "%s=%s:%s" % (x["path"], x["sha256"], x["sed"])]
+    cmd += [src, a["sha256"], os.path.join(m["install_dir"], a["dest"]), a["stamp"]]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    for line in (r.stdout + r.stderr).splitlines():
+        out.say("  " + line)
+    if r.returncode == 3:
+        os.remove(src)
+        raise Fail("checksum", "%s did not pass the unpack's sha256 or patch check and was deleted; nothing of it was "
+                   "installed." % title)
+    if r.returncode != 0:
+        if free_mib(m["install_dir"]) < a.get("install_mib", 0):
+            raise Fail("space", "unpacking %s ran out of space on %s (%d MiB free). Free some space and pick "
+                       "FIGHTCADE again." % (title, m["install_dir"], free_mib(m["install_dir"])))
+        last = (r.stderr.strip().splitlines() or ["rc %d" % r.returncode])[-1]
+        raise Fail("failed", "unpacking %s failed (%s); nothing half-installed was kept. Pick FIGHTCADE again to "
+                   "retry." % (title, last[-140:]))
+    os.remove(src)
+
+
+def write_text(path, text):
+    tmp = "%s.hk-new.%d" % (path, os.getpid())
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+
+def local_steps(m, out):
+    out.event("step", name="setup", text="Setting up the lobby")
+    for p in exes_not_755(m):
+        os.chmod(p, 0o755)
+    want = nativefier_want(m)
+    if want is None:
+        raise Fail("failed", "the Fightcade tree has no nativefier.json.dist: the unpack did not finish. Pick FIGHTCADE "
+                   "again.")
+    if read(m["nativefier"]["path"]) != want:
+        write_text(m["nativefier"]["path"], want)
+    for f in m.get("files", []):
+        if read(f["path"], None) != f["text"]:
+            write_text(f["path"], f["text"])
+    want = ini_want(m)
+    if want is None:
+        raise Fail("failed", "the Fightcade tree has no %s: the unpack did not finish. Pick FIGHTCADE again."
+                   % m["ini"]["dist"])
+    if read(m["ini"]["base"], None) != want:
+        write_text(m["ini"]["base"], want)
+    pre = m["prefix"]
+    if read(os.path.join(pre["path"], ".hk-stamp")).strip() != pre["stamp"]:
+        out.event("step", name="prefix", text="Preparing Wine (about a minute)")
+        env = dict(os.environ, COIN_DOJO_FIGHTCADE_CONF=m["conf"], HK_FC_LOGS=m["logs"])
+        r = subprocess.run([m["prefix_cmd"], pre["path"], pre["stamp"]], capture_output=True, text=True, env=env)
+        for line in (r.stdout + r.stderr).splitlines():
+            out.say("  " + line)
+        if r.returncode != 0:
+            raise Fail("failed", "preparing Wine failed (rc %d; log: %s/wineboot.log). Pick FIGHTCADE again to retry."
+                       % (r.returncode, m["logs"]))
+
+
+def tidy(m, out):
+    """Leftovers of a killed run: hk-fightcade-unpack's <dest>.new.N / <dest>.old.N trees, and staging files that are
+    not the current pins (an old pin's download). Current downloads and .part files stay (resume)."""
+    keep = {".lock"}
+    for a in m["archives"]:
+        keep |= {a["file"], a["file"] + ".part"}
+    for f in os.listdir(m["staging"]):
+        if f not in keep:
+            p = os.path.join(m["staging"], f)
+            out.say("removing a stale staging file %s" % p)
+            if os.path.isdir(p) and not os.path.islink(p):
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                os.remove(p)
+    dests = [re.escape(a["dest"]) for a in m["archives"]]
+    pat = re.compile(r"^(%s)\.(new|old)\.[0-9]+$" % "|".join(dests))
+    if os.path.isdir(m["install_dir"]):
+        for f in os.listdir(m["install_dir"]):
+            p = os.path.join(m["install_dir"], f)
+            if pat.match(f) and os.path.isdir(p) and not os.path.islink(p):
+                out.say("removing a half-unpacked tree from an interrupted run: %s" % p)
+                subprocess.run(["chmod", "-R", "u+w", p], capture_output=True)
+                shutil.rmtree(p, ignore_errors=True)
+
+
+def install(m, out):
+    os.makedirs(m["staging"], mode=0o700, exist_ok=True)
+    os.makedirs(m["install_dir"], exist_ok=True)
+    lock = open(os.path.join(m["staging"], ".lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise Fail("busy", "another Fightcade download is already running (lock %s/.lock)." % m["staging"])
+    tidy(m, out)
+    pl = plan(m)
+    out.event("plan", **pl)
+    if pl["free_mib"] < pl["need_mib"]:
+        raise Fail("space", "Fightcade needs about %d MB free on the data partition (%s), %d MB are free. Free some "
+                   "space and pick FIGHTCADE again; nothing was downloaded."
+                   % (pl["need_mib"] * MIB // 1000000, m["install_dir"], pl["free_mib"] * MIB // 1000000))
+    todo = [a for a in m["archives"] if not installed(m, a)]
+    all_total = sum(a["size"] for a in todo)
+    done = 0
+    for a in todo:
+        try:
+            download(m, a, out, done, all_total)
+        except OSError as e:
+            if e.errno == errno.ENOSPC:
+                raise Fail("space", "the data partition filled up while downloading %s. Free some space and pick "
+                           "FIGHTCADE again." % a.get("title", a["name"]))
+            raise Fail("failed", "could not write the download of %s: %s" % (a.get("title", a["name"]), e))
+        done += a["size"]
+    for a in todo:                                  # every download is verified before anything is unpacked
+        unpack(m, a, out)
+    try:
+        local_steps(m, out)
+    except OSError as e:
+        kind = "space" if e.errno == errno.ENOSPC else "failed"
+        raise Fail(kind, "setting up the lobby failed: %s. Pick FIGHTCADE again to retry." % e)
+    left = [a["name"] for a in m["archives"] if not installed(m, a)] + local_todo(m)
+    if left:
+        raise Fail("failed", "the install is still incomplete (%s). Pick FIGHTCADE again to retry." % ", ".join(left))
+    out.event("done")
+    out.say("Fightcade mode is installed")
+
+
+def _term(signum, frame):
+    raise SystemExit(128 + signum)
+
+
+def main(argv):
+    mode = None
+    progress = yes = False
+    for x in argv:
+        if x in ("--check", "--plan"):
+            mode = x[2:]
+        elif x == "--yes":
+            yes = True
+        elif x == "--progress":
+            progress = True
+        elif x in ("-h", "--help"):
+            print(__doc__)
+            return 0
+        else:
+            print("usage: hk-fightcade-fetch --check | --plan | --yes [--progress]", file=sys.stderr)
+            return 2
+    if mode is None and not yes:
+        print("usage: hk-fightcade-fetch --check | --plan | --yes [--progress]  (--yes: you accept the download)",
+              file=sys.stderr)
+        return 2
+    out = Out(progress)
+    try:
+        if os.getuid() == 0 and os.environ.get("HK_FC_ALLOW_ROOT") != "1":
+            raise Fail("root", "refusing to run as root: Fightcade is installed as the cabinet user.")
+        m = load_manifest(MANIFEST)
+        if mode == "check":
+            return check(m)
+        if mode == "plan":
+            print(json.dumps(plan(m), sort_keys=True))
+            return 0
+        signal.signal(signal.SIGTERM, _term)
+        out = Out(progress, m["logs"] if os.path.isdir(m["logs"]) else None)
+        out.say("start (manifest %s)" % MANIFEST)
+        install(m, out)
+        return 0
+    except Fail as e:
+        out.say("ERROR (%s): %s" % (e.kind, e.text))
+        out.event("error", kind=e.kind, text=e.text)
+        return EXIT.get(e.kind, 1)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

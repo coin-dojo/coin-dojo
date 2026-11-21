@@ -1,0 +1,57 @@
+# Area: theme. The ES-DE theme's levers: which theme, personal art on/off, where the art lives, the eye glow, the
+# REV stamp, the footer hotkey strip. Defaults are today's look; art that is yours never has a default.
+area: theme
+description: The ES-DE theme - name, art folder, eye glow, REV stamp, hotkey strip, carousel order.
+variables:
+  hk_theme_name:
+    type: str
+    default: coin-dojo
+    pattern: "[a-z0-9][a-z0-9-]*"
+    description: Folder name of the ES-DE theme under themes/ (and under ~/ES-DE/themes on the cabinet).
+    consumers: [ansible/roles/esde_theme]
+    exports: [esde_theme_name]
+  hk_theme_overlay:
+    type: bool
+    default: true
+    description: >-
+      Lay the personal overlay (personal/themes/<theme>) over the theme at deploy. EDITION=community never does,
+      whatever this says. Set false to deploy the repo theme alone.
+    consumers: [ansible/roles/esde_theme]
+    exports: [esde_theme_personal]
+  hk_theme_art_dir:
+    type: str
+    default: ""
+    description: >-
+      Your own art folder, laid over the theme at deploy: backdrops/default.png (1440x1080 PNG) and an optional
+      backdrops/<system>.png per system (plus eye-glow.* when you have them). Relative paths start at the repo root.
+      Unset: the theme shows its own backdrop, the night art (backdrops/default.png) with its eye glow; the dojo
+      (backdrops/dojo.png, gen_backdrop.py) is the alternative. The art never leaves this folder (it is not committed or
+      copied elsewhere).
+    example: personal/themes/coin-dojo/_inc/art
+    consumers: [ansible/roles/esde_theme, skills/badges/gen_eye_glow.py]
+    exports: [esde_theme_art_dir]
+  hk_eye_glow:
+    type: map
+    default: {enabled: true, peak: 0.92, box: [680, 85, 960, 345]}
+    fields:
+      enabled: {type: bool}
+      peak: {type: float, min: 0.0, max: 1.0}
+      box: {type: list, items: int}
+    description: >-
+      The slow glow over the eyes of the backdrop (skills/badges/gen_eye_glow.py). enabled: draw it at all; peak:
+      strongest opacity of the loop, 0 to 1; box: x0, y0, x1, y1 of the glow in backdrop pixels (1440x1080), around the
+      eyes of YOUR art. Set one key and keep the rest (`hk_eye_glow: {peak: 0.6}`).
+    consumers: [skills/badges/gen_eye_glow.py, ansible/roles/esde_theme]
+    exports: [esde_theme_eye_glow]
+  hk_rev_stamp:
+    type: bool
+    default: true
+    description: Show the REV build stamp (git describe) bottom-left in the footer.
+    consumers: [ansible/roles/esde_theme]
+    exports: [esde_theme_rev_stamp]
+  hk_hotkey_strip:
+    type: bool
+    default: true
+    description: Show the small hotkey badge strip above the footer on game lists.
+    consumers: [ansible/roles/esde_theme]
+    exports: [esde_theme_hotkey_strip]

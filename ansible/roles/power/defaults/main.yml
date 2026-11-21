@@ -1,0 +1,49 @@
+# power: press the power button twice to shut down (play 2 in site.yml, host pios). Reproduces the
+# 2026-11-13 hand setup: powerd.py reads the power key, shows shutdown.html, a second press within
+# 8 s runs `sudo -n systemctl poweroff`.
+# Since #44 powerd runs as a systemd system service (User=coindojo), not from .bash_profile. logind must ignore the key or it would power off at once.
+cabinet_user: "{{ hk_cabinet_user }}"
+cabinet_group: "{{ hk_cabinet_group }}"
+cabinet_home: "/home/{{ cabinet_user }}"   # internal
+
+power_dir: /data/launcher   # internal
+power_bash_profile: "{{ cabinet_home }}/.bash_profile"   # internal
+power_logind_dropin: /etc/systemd/logind.conf.d/coin-dojo-power.conf   # internal
+power_sudoers_file: /etc/sudoers.d/coin-dojo-power   # internal
+# Exactly one command, no wildcard, no args beyond "poweroff". Never reboot, never ALL.
+power_sudoers_line: "{{ cabinet_user }} ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff"   # internal
+# Legacy start line (nohup in the tty1 block of .bash_profile). The role now REMOVES any line matching
+# powerd.py from .bash_profile (state=absent); the systemd unit replaces it.
+power_unit_file: /etc/systemd/system/coin-dojo-powerd.service   # internal
+power_unit_name: coin-dojo-powerd.service   # internal
+# Stable path of the pwr_button event node (does not move when USB pads enumerate first).
+# powerd.py falls back to scanning /sys/class/input/event*/device/name == pwr_button if it is missing.
+power_device: /dev/input/by-path/platform-pwr_button-event   # internal
+# One source: hk_cabinet_uid (host area; also exported as power_uid).
+power_uid: "{{ hk_cabinet_uid }}"
+power_wayland_display: wayland-0   # internal
+# #66 shutdown path: cap how long one hung process can hold the poweroff. Distro default is 90 s
+# (session scope, every unit) and 2 min (user@1001). ES-DE saves gamelists on every change
+# (SaveGamelistsMode=always) and RetroArch writes SRAM on SIGTERM in milliseconds, so 15 s only
+# ever cuts a process that is truly stuck. systemd-shutdown still syncs disks after the kill.
+power_stop_timeout: "{{ hk_power_stop_timeout }}"
+power_system_dropin: /etc/systemd/system.conf.d/coin-dojo-power.conf   # internal
+power_user_unit_dropin: /etc/systemd/system/user@.service.d/coin-dojo-power.conf   # internal
+# powerd's priority: the button must react while an emulator keeps the cores busy.
+power_nice: "{{ hk_power_nice }}"
+# Seconds the confirm prompt waits (powerd WINDOW, shutdown.html countdown).
+power_prompt: "{{ hk_power_prompt }}"
+
+# stickmouse (#211): the stick as a mouse in Fightcade mode. A systemd USER unit that coin-dojo-fightcade (#208)
+# starts and stops (`systemctl --user start coin-dojo-stickmouse`); no [Install], never enabled.
+# /etc/systemd/user is root-owned: the cabinet user cannot rewrite what runs with its own rights.
+stickmouse_unit_file: /etc/systemd/user/coin-dojo-stickmouse.service   # internal
+stickmouse_unit_name: coin-dojo-stickmouse.service   # internal
+# Run when SELECT+START has been held 2 s, after `menu` went into $XDG_RUNTIME_DIR/coin-dojo/next-mode. #209 ships it.
+stickmouse_stop_cmd: /usr/local/bin/coin-dojo-session-stop   # internal
+# /dev/uinput is root 0600 by default. Narrow rule: only that one node, group input (the cabinet user is in it,
+# like for the pads), no "uaccess" (no logged-in-seat grant to anyone else). Same effect as the dreamcast role's
+# 60-coin-dojo-uinput.rules (#101), kept as its own file so either role can go alone. Revert: delete the file, `udevadm trigger`.
+stickmouse_uinput_rule_file: /etc/udev/rules.d/61-coin-dojo-stickmouse.rules   # internal
+stickmouse_uinput_modules_file: /etc/modules-load.d/coin-dojo-stickmouse.conf   # internal
+stickmouse_uinput_rule: 'KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660"'   # internal

@@ -1,0 +1,63 @@
+#!/bin/bash
+# hk-fightcade-wrap (#208): one script behind three names in /usr/local/lib/coin-dojo-fightcade (role `fightcade`):
+#
+#   wine ARGS...        Box64 + Wine 10.0 (x86_64 ELF, so it always goes through box64). Also the binfmt_misc
+#                       interpreter for MZ files (#228, /etc/binfmt.d/coin-dojo-wine.conf): fcade execs fcadefbneo.exe
+#                       directly and the kernel runs `/bin/bash <this dir>/wine <exe> <args...>`, so $0 ends in wine.
+#   wineserver ARGS...  the same for wineserver; the session's coin-dojo-cleanup runs `wineserver -k` through this
+#   fcade-url URL       the fcade:// link handler (xdg-open, from the lobby): Fightcade's fcade helper (x86_64)
+#                       under Box64 in its own folder, as Fightcade's fcade.sh does; FBNeo then starts as `wine`
+#                       through binfmt_misc (above). The game gets the cabinet's own cursor theme back (the visible one is lobby-only).
+#
+# Every setting comes from the launcher config ($COIN_DOJO_FIGHTCADE_CONF). Values already in the environment (set by
+# coin-dojo-fightcade for the lobby) win, so the game inherits the lobby's prefix and Box64 flags. Bash 3.2 compatible.
+# Never as root (Security #215): Box64, Wine and fcade are the cabinet user's files on the data partition, so
+# `sudo .../wineserver -k` would run them as root. Every name refuses uid 0 with exit 2 before anything runs;
+# HK_FC_ALLOW_ROOT=1 is for the container tests only (the role runs as root there, like hk-fightcade-prefix).
+set -u
+if [ "$(id -u)" = 0 ] && [ "${HK_FC_ALLOW_ROOT:-}" != 1 ]; then
+  echo "hk-fightcade-wrap: refusing to run ${0##*/} as root: it runs the cabinet user's Box64/Wine; run it as that user" >&2
+  exit 2
+fi
+CONF=${COIN_DOJO_FIGHTCADE_CONF:-/usr/local/etc/coin-dojo-fightcade.conf}
+if [ ! -r "$CONF" ]; then
+  echo "hk-fightcade-wrap: missing config $CONF (deploy: make deploy TAGS=fightcade)" >&2
+  exit 2
+fi
+# shellcheck source=/dev/null
+. "$CONF"
+
+export WINEPREFIX=${WINEPREFIX:-$HK_FC_SHM_PREFIX}
+export WINEDEBUG=${WINEDEBUG:--all}
+export WINEDLLOVERRIDES=${WINEDLLOVERRIDES:-mscoree,mshtml=d}
+export BOX64_LOG=${BOX64_LOG:-0}
+export BOX64_LD_LIBRARY_PATH=${BOX64_LD_LIBRARY_PATH:-$HK_FC_BOX64_LIB}
+export BOX64_RCFILE=${BOX64_RCFILE:-$HK_FC_BOX64_RC}
+case ":$PATH:" in *":$HK_FC_BINDIR:"*) ;; *) export PATH="$HK_FC_BINDIR:$PATH" ;; esac
+
+for p in "$HK_FC_BOX64" "$HK_FC_WINE/bin/wine" "$HK_FC_WINE/bin/wineserver"; do
+  if [ ! -x "$p" ]; then
+    echo "hk-fightcade-wrap: missing artifact $p (deploy: make deploy TAGS=fightcade)" >&2
+    exit 2
+  fi
+done
+
+case "${0##*/}" in
+  wine) exec "$HK_FC_BOX64" "$HK_FC_WINE/bin/wine" "$@" ;;
+  wineserver) exec "$HK_FC_BOX64" "$HK_FC_WINE/bin/wineserver" "$@" ;;
+  fcade-url)
+    cd "$HK_FC_TREE/emulator" || exit 2
+    [ -x ./fcade ] || { echo "hk-fightcade-wrap: missing artifact $HK_FC_TREE/emulator/fcade" >&2; exit 2; }
+    if [ -n "${HK_FC_GAME_XCURSOR_THEME+x}" ]; then export XCURSOR_THEME="$HK_FC_GAME_XCURSOR_THEME"; fi
+    # The link itself is not logged (it can carry a match or session id).
+    printf '%s fcade-url: start (%d args)\n' "$(date '+%F %T')" $# >> "$HK_FC_LOGS/fcade-url.log" 2>/dev/null
+    # fcade's output can name match/replay links: they are cut out before the log (the logs dir is 0700 too).
+    "$HK_FC_BOX64" ./fcade "$@" 2>&1 | sed -E 's#[A-Za-z][A-Za-z0-9+.-]*://[^[:space:]"]*#<link>#g' >> "$HK_FC_LOGS/fcade-url.log"
+    exit "${PIPESTATUS[0]}"
+
+    ;;
+  *)
+    echo "hk-fightcade-wrap: run me as wine, wineserver or fcade-url (got ${0##*/})" >&2
+    exit 2
+    ;;
+esac

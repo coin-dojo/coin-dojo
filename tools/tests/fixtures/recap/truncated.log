@@ -1,0 +1,60 @@
+[WARNING]: Could not match supplied host pattern, ignoring: arcade
+
+PLAY [RomM sync (control node -> local staging)] *******************************
+skipping: no hosts matched
+
+PLAY [Deploy arcade pack to the Batocera cabinet] ******************************
+skipping: no hosts matched
+
+PLAY [Deploy dreamcast + system tweaks to the Debian cabinet] ******************
+
+TASK [Gathering Facts] *********************************************************
+ok: [cab-test]
+
+TASK [cabinet_tweaks : 4 KB-page kernel for emulator JIT (flycast); backup then kernel=kernel8.img under [all]] ***
+ok: [cab-test]
+
+TASK [cabinet_tweaks : Comment explaining how to revert the kernel line] *******
+--- before: /boot/firmware/config.txt (content)
++++ after: /boot/firmware/config.txt (content)
+@@ -58,6 +58,6 @@
+ disable_fw_kms_setup=1
+ disable_overscan=1
+ 
+-# 4KB-page kernel for emulator JIT compatibility (flycast/Dreamcast etc.)
++# 4KB-page kernel for emulator JIT compatibility (flycast/Dreamcast etc.). Revert: delete the next line (restores the Pi5 16KB-page kernel_2712.img default)
+ # Revert: delete the next line (restores the Pi5 16KB-page kernel_2712.img default)
+ kernel=kernel8.img
+
+changed: [cab-test]
+
+TASK [cabinet_tweaks : Per-core option dirs exist] *****************************
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/.config/retroarch/config/PCSX-ReARMed
+ 
+
+changed: [cab-test] => (item=PCSX-ReARMed)
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/.config/retroarch/config/Mupen64Plus-Next
+ 
+
+changed: [cab-test] => (item=Mupen64Plus-Next)
+--- before
++++ after
+@@ -1,3 +1,3 @@
+-    mode: '0775'
++    mode: '0755'
+     path: /home/player/.config/retroarch/config/Flycast
+ 
+
+changed: [cab-test] => (item=Flycast)
+
+TASK [cabinet_tweaks : Per-core options (one lineinfile per key)] **************

@@ -1,0 +1,100 @@
+# diskhygiene (#91): free root-fs space on the Debian cabinet. See defaults/main.yml for what and why.
+# Dry-run friendly: every read (measure, apt-get -s plan) runs as the cabinet user with
+# check_mode: false; every write needs sudo and runs only when not in check mode.
+# Never reboots, never restarts anything, never runs apt autoremove.
+
+- name: Rule args for diskhygiene.py (dpkg order, excludes before includes)
+  ansible.builtin.set_fact:
+    diskhygiene_rule_args: >-
+      {% for g in diskhygiene_path_excludes %}--exclude {{ g | quote }} {% endfor %}
+      {% for g in diskhygiene_path_includes %}--include {{ g | quote }} {% endfor %}
+    diskhygiene_plan_args: >-
+      {% for g in diskhygiene_protect %}--protect {{ g | quote }} {% endfor %}
+      {% for n, p in diskhygiene_purge_groups.items() %}--group {{ (n ~ '=' ~ (p | join(','))) | quote }} {% endfor %}
+      {% for n in diskhygiene_purge %}--enable {{ n | quote }} {% endfor %}
+
+# ---- 1. dpkg path-exclude drop-in ----------------------------------------------------------------
+# In check mode this only reads the current file (world-readable) to show the diff.
+- name: Dpkg path-exclude drop-in (no docs, man, info, lintian, non-English locales on install)
+  ansible.builtin.template:
+    src: dpkg-diskhygiene.j2
+    dest: "{{ diskhygiene_dpkg_cfg }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: "{{ not ansible_check_mode }}"
+
+# ---- 2. prune what the drop-in already covers ----------------------------------------------------
+- name: Measure files under /usr/share the drop-in excludes (read-only)
+  ansible.builtin.script:
+    cmd: "diskhygiene.py prune {{ diskhygiene_rule_args }}"
+    executable: python3
+  check_mode: false
+  register: diskhygiene_prune_measure
+  changed_when: ansible_check_mode and (diskhygiene_prune_measure.stdout | from_json).bytes > 0
+  when: diskhygiene_prune | bool
+
+- name: Delete those files (apply only)
+  ansible.builtin.script:
+    cmd: "diskhygiene.py prune {{ diskhygiene_rule_args }} --apply"
+    executable: python3
+  become: true
+  register: diskhygiene_prune_apply
+  when:
+    - not ansible_check_mode
+    - diskhygiene_prune | bool
+    - (diskhygiene_prune_measure.stdout | from_json).bytes > 0
+
+# ---- 3. package groups: plan every group, purge only the approved ones ---------------------------
+# apt-get -s as the cabinet user (Debug::NoLocking); exit 2 = protected package or cascade -> fail.
+- name: Plan package purges with apt-get -s (read-only; fails on a protected or cascading removal)
+  ansible.builtin.script:
+    cmd: "diskhygiene.py purge-plan {{ diskhygiene_plan_args }}"
+    executable: python3
+  check_mode: false
+  register: diskhygiene_plan_run
+  changed_when: ansible_check_mode and (diskhygiene_plan_run.stdout | from_json).purge | length > 0
+
+- name: Parse the purge plan
+  ansible.builtin.set_fact:
+    diskhygiene_plan: "{{ diskhygiene_plan_run.stdout | from_json }}"
+
+- name: Purge the approved groups (apply only; exactly the planned packages, nothing else)
+  ansible.builtin.command:
+    argv: "{{ ['apt-get', '-y', 'purge'] + diskhygiene_plan.purge }}"
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  become: true
+  register: diskhygiene_purge_run
+  when:
+    - not ansible_check_mode
+    - diskhygiene_plan.purge | length > 0
+
+- name: The stack is still installed after the purge (apply only)
+  ansible.builtin.command:
+    argv: "{{ ['dpkg-query', '-W'] + diskhygiene_must_stay }}"
+  changed_when: false
+  when: diskhygiene_purge_run is changed
+
+# ---- report --------------------------------------------------------------------------------------
+- name: Never remove the active theme, backups or a path outside the themes dir
+  ansible.builtin.assert:
+    that:
+      - diskhygiene_theme_keep not in diskhygiene_remove_themes
+      - diskhygiene_remove_themes | select('match', '^[a-z0-9][a-z0-9._-]*$') | list | length == diskhygiene_remove_themes | length
+      - "'_backups' not in diskhygiene_remove_themes"
+    fail_msg: "bad diskhygiene_remove_themes: {{ diskhygiene_remove_themes }}"
+    quiet: true
+
+- name: Remove unused ES-DE themes (apply only)
+  ansible.builtin.file:
+    path: "{{ diskhygiene_theme_root }}/{{ item }}"
+    state: absent
+  loop: "{{ diskhygiene_remove_themes }}"
+
+- name: Disk hygiene report
+  ansible.builtin.debug:
+    msg:
+      - "prune: {{ (diskhygiene_prune_measure.stdout | default('{\"mb\": 0, \"files\": 0}') | from_json).mb }} MB in {{ (diskhygiene_prune_measure.stdout | default('{\"mb\": 0, \"files\": 0}') | from_json).files }} files{{ ' (would delete)' if ansible_check_mode else '' }}"
+      - "purge (approved {{ diskhygiene_purge }}): {{ diskhygiene_plan.freed_mb }} MB, {{ diskhygiene_plan.purge | length }} packages"
+      - "{% for g in diskhygiene_plan.groups %}{{ g.group }}={{ g.freed_mb }}MB{{ '(approved)' if g.enabled else '' }}{{ ' CASCADE ' ~ g.cascade if g.cascade else '' }} {% endfor %}"

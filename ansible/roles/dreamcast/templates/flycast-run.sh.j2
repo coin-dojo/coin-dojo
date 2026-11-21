@@ -1,0 +1,28 @@
+#!/bin/bash
+# Standalone flycast launcher for the coin-dojo cabinet (DC/Naomi/Atomiswave via ES-DE "Flycast (Standalone)").
+# Standalone flycast draws via its own SDL2 + GLES3, bypassing RetroArch's GLES-only frontend.
+# Select+Start pressed together (either pad, a tap: 0.1 s) quits flycast: see flycast-exit-combo.py.
+export SDL_VIDEODRIVER=wayland
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/{{ dreamcast_uid }}}
+export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
+# #187/#188: GUI and FPS counter inside the 4:3 bezel area (patched build; see build/flycast/README.md).
+{% for k, v in dreamcast_gui_env | dictsort %}
+export {{ k }}={{ v | quote }}
+{% endfor %}
+# #179 per-game render height (hk_flycast_resolution_by_game): a transient -config, emu.cfg is not touched.
+EXTRA=()
+NAME=$(basename -- "${!#}"); NAME=${NAME%.*}
+shopt -s nocasematch
+case "$NAME" in
+{% for name, h in dreamcast_resolution_by_game | dictsort %}
+  {{ name | quote }}) EXTRA=(-config "config:rend.Resolution={{ h | int }}") ;;
+{% endfor %}
+esac
+shopt -u nocasematch
+{{ dreamcast_dir }}/flycast "${EXTRA[@]}" "$@" >/tmp/flycast-last.log 2>&1 &
+FPID=$!
+python3 -I {{ dreamcast_dir }}/flycast-exit-combo.py "$FPID" 0.1 &
+CPID=$!
+wait "$FPID"; RC=$?
+kill "$CPID" 2>/dev/null
+exit $RC

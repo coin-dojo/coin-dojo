@@ -1,0 +1,68 @@
+<!-- Per-system overrides for the SETTINGS carousel entry (#34), included by theme.xml as
+     ./_inc/per-system/${system.theme}.xml (systems without a file here: ES-DE logs a debug line only).
+     SETTINGS is a tool, not a game list: no "1 GAME" pill under it. -->
+<theme>
+    <view name="system">
+        <text name="gameCounter">
+            <visible>false</visible>
+        </text>
+    </view>
+    <!-- #225: the SETTINGS gamelist draws only the plain theme background (baseFill = baseColor = brand "bg").
+         ES-DE's last frame before the blocking SETTINGS hook is this view, and it stays on screen until ES-DE handles
+         the Back; the app fades to the same bg before it exits, so that frame no longer flashes the one-entry list.
+         Every gamelist element of the theme (and the personal overlay) is hidden here; test_theme_xml.py checks it.
+         ES-DE 3.5.0 (ThemeData.cpp sElementMap): textlist has no visible/opacity (all its colours are made fully
+         transparent), clock/systemstatus/helpsystem have only opacity. -->
+    <view name="gamelist">
+        <image name="scanlineOverlay, background, controlDeck, controlsHint, gameImage, listBackdrop">
+            <visible>false</visible>
+        </image>
+        <image name="listScrim, panelFrameLeft, panelFrameRight, panelLeft, panelRight">
+            <visible>false</visible>
+        </image>
+        <video name="gameVideo">
+            <visible>false</visible>
+        </video>
+        <animation name="eyeGlow">
+            <visible>false</visible>
+        </animation>
+        <text name="buildStamp, collectionsSystemName, customCollectionsHeader, customCollectionsSystemName">
+            <visible>false</visible>
+        </text>
+        <text name="description, developer, gameTitle, genre, players, systemTitle">
+            <visible>false</visible>
+        </text>
+        <text name="labelDeveloper, labelGenre, labelPlayers, labelReleased">
+            <visible>false</visible>
+        </text>
+        <datetime name="releasedate">
+            <visible>false</visible>
+        </datetime>
+        <rating name="rating">
+            <visible>false</visible>
+        </rating>
+        <badges name="badges, controlsCard">
+            <visible>false</visible>
+        </badges>
+        <clock name="clock">
+            <opacity>0</opacity>
+        </clock>
+        <systemstatus name="systemStatus">
+            <opacity>0</opacity>
+        </systemstatus>
+        <helpsystem name="help">
+            <opacity>0</opacity>
+            <opacityDimmed>0</opacityDimmed>
+        </helpsystem>
+        <textlist name="gamelistTextlist">
+            <primaryColor>00000000</primaryColor>
+            <secondaryColor>00000000</secondaryColor>
+            <selectedColor>00000000</selectedColor>
+            <selectedSecondaryColor>00000000</selectedSecondaryColor>
+            <selectorColor>00000000</selectorColor>
+            <selectorColorEnd>00000000</selectorColorEnd>
+            <selectedBackgroundColor>00000000</selectedBackgroundColor>
+            <selectedSecondaryBackgroundColor>00000000</selectedSecondaryBackgroundColor>
+        </textlist>
+    </view>
+</theme>

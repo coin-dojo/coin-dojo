@@ -1,0 +1,123 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>./artfist2.zip</path>
+		<name>Art of Fists 2</name>
+		<releasedate>19940311T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Fighting / Versus</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./diamondp.zip</path>
+		<name>Diamond Pros</name>
+		<releasedate>19900101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Sports</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./blazecom.zip</path>
+		<name>Blaze Comet</name>
+		<releasedate>19980101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Shoot'em Up / Horizontal</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./emberfgt.zip</path>
+		<name>Ember Fight</name>
+		<releasedate>19910101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Beat'em Up</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./wildwolf.zip</path>
+		<name>Wild Wolf Special</name>
+		<releasedate>19930101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Fighting</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./lonewolf.zip</path>
+		<name>Lone Wolf Legacy</name>
+		<releasedate>19990101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Fighting / Versus</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./titans2.zip</path>
+		<name>Titans of the Ring 2</name>
+		<releasedate>19920601T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Beat'em Up</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./finalcoast.zip</path>
+		<name>Final Coast</name>
+		<releasedate>19920101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Shoot'em Up / Horizontal</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./gemdrop3.zip</path>
+		<name>Gem Drop III</name>
+		<releasedate>19970101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Puzzle</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./spelllord.zip</path>
+		<name>Spell Lord</name>
+		<releasedate>19900101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Platform / Shooter Scrolling</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./tankcrew.zip</path>
+		<name>Tank Crew</name>
+		<releasedate>19960101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Shooter / Run and Gun</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./tankcrew3.zip</path>
+		<name>Tank Crew 3</name>
+		<releasedate>20010917T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Shooter / Run and Gun</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+</gameList>

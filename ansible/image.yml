@@ -1,0 +1,68 @@
+# Image build (#244): the cabinet's roles, run into a Coin Dojo image's root filesystem, so `make image` makes the
+# same cabinet a deploy does (one source of truth). Run only by skills/build-image/scripts/provision.sh, inside the
+# privileged build container, with the image's partitions mounted at /mnt/root (+ /boot/firmware, /data):
+#
+#   ansible-playbook -i inventory/image.yml image.yml -e @<rendered config> [-e coin_dojo_edition=community]
+#
+# coin_dojo_image=true switches the roles to image mode (group_vars/all.yml): no live restarts, no sysctl/modprobe/
+# binfmt on the build machine's kernel, no NetworkManager or timedated calls. Those take effect at the first boot
+# (sysctl.d, modules-load.d, binfmt.d, enabled units). Order = site.yml. Left out on purpose:
+#   sshd_keyonly  its job is the lockout-guarded switch of a LIVE sshd; the image's key-only drop-in is written by
+#                 chroot-setup.sh (same directives, tests/test_image_play.py), with the COIN_DOJO_SSH_PASSWORD opt-in
+#   esde_verify   reads a running ES-DE's log and the nested build's counts; the image has neither
+#   fightcade     only with hk_image_fightcade: true (needs make -C build box64 fightcade; nothing is redistributed)
+- name: Image build - the cabinet roles into the image (chroot, never a live host)
+  hosts: image
+  gather_facts: true
+  any_errors_fatal: true
+  vars:
+    coin_dojo_image: true
+  pre_tasks:
+    - name: This is the image chroot, not a cabinet
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'coin-dojo-image'
+          - ansible_connection == 'community.general.chroot'
+          - "'pios' not in group_names and 'vm' not in group_names"
+        fail_msg: "REFUSED: image.yml runs only against the image chroot (inventory/image.yml), not {{ inventory_hostname }}."
+        quiet: true
+      tags: [always]
+  roles:
+    - { role: cores, tags: [cores] }   # #244 the launcher's cores (launch.py), before cabinet_tweaks asserts its pins
+    - { role: cabinet_tweaks, tags: [cabinet_tweaks, tweaks] }
+    - { role: dreamcast, tags: [dreamcast] }
+    - { role: retroarch122, tags: [retroarch122, n64] }
+    - { role: launcher, tags: [launcher] }
+    - { role: fightcade, tags: [fightcade], when: hk_image_fightcade | bool }
+    - { role: power, tags: [power] }
+    - { role: journald, tags: [journald] }
+    - { role: diskhygiene, tags: [diskhygiene] }
+    - { role: session, tags: [session] }
+    - { role: share, tags: [share] }   # #266 network folder (hk_share_enable); smbd starts at the first boot
+    - { role: settings, tags: [settings] }
+    - { role: esde_common, tags: [esde, esde_theme, collections] }
+    - { role: esde_theme, tags: [esde, esde_theme] }
+    - { role: esde_collections, tags: [esde, collections] }   # image mode: the starter carousel (SETTINGS, QUIT)
+  post_tasks:
+    # On a cabinet the tasks without become run as the cabinet user; in the chroot everything ran as root. Hand the
+    # home dir and /data back to the cabinet user (as on the cabinet: /data is the user's, root-run files live on the
+    # root fs), then the files a role makes root-owned there on purpose.
+    - name: The cabinet user owns its home and /data (lost+found stays root's)
+      ansible.builtin.shell:
+        executable: /bin/bash
+        cmd: >-
+          set -o pipefail;
+          find {{ hk_cabinet_home | quote }} {{ hk_data_root | quote }} -xdev -path {{ (hk_data_root ~ '/lost+found') | quote }} -prune
+          -o -user root -print -exec chown -h {{ (hk_cabinet_user ~ ':' ~ hk_cabinet_group) | quote }} {} + | wc -l
+      register: image_chown
+      changed_when: image_chown.stdout | trim | int > 0
+      tags: [always]
+
+    - name: Root-owned on purpose under /data (the SETTINGS entry, ticket 198)
+      ansible.builtin.file:
+        path: "{{ settings_entry }}"
+        owner: root
+        group: root
+      when: settings_entry is defined
+      failed_when: false
+      tags: [always]

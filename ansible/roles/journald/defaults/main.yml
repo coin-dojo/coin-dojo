@@ -1,0 +1,18 @@
+# journald: keep the systemd journal across reboots (play 2 in site.yml, host pios), so the previous
+# boot's shutdown timing, crashes and freezes can be read with `journalctl -b -1`.
+# Raspberry Pi OS ships /usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf
+# (Storage=volatile, package raspberrypi-sys-mods) to spare the SD card; our 50- drop-in in /etc
+# sorts after it and wins. The distro files stay untouched.
+journald_dropin_dir: /etc/systemd/journald.conf.d   # internal
+journald_dropin: "{{ journald_dropin_dir }}/50-coin-dojo.conf"   # internal
+journald_dir: /var/log/journal   # internal
+
+# Levers (config/variables.d/storage.yml, defaults 50M / 500M / 1month; the reasons are on the declarations).
+# SD card: small and bounded. 50M holds many boots of this cabinet (a boot is ~5M today).
+journald_system_max_use: "{{ hk_journal_max_use }}"
+# journald also stops growing when the root fs has less than this free. The cabinet's / had 810M
+# free on 2026-11-14, so 1G would shrink the cap to ~nothing and vacuum the previous boot away
+# (the very thing we want to keep). 500M leaves the card room and still lets the journal reach 50M.
+journald_system_keep_free: "{{ hk_journal_keep_free }}"
+# Drop entries older than a month even when under the size cap.
+journald_max_retention: "{{ hk_journal_retention }}"

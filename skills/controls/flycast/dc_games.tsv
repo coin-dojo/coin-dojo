@@ -1,0 +1,17 @@
+# Dreamcast games on the cabinet whose stick mode is decided (the maintainer 2026-11-15: Ikaruga does not move).
+# id = IP.BIN product number = flycast's game ID; peripherals = IP.BIN 0x38 (read 2026-11-15 with
+# `dcpad.py ipbin <chd>` from /data/roms/dreamcast). stick: dpad = ship "SDL_USB gamepad_<id>.cfg" (panel stick on the
+# DC d-pad); analog = no file, the base SDL_USB gamepad.cfg (stick = DC analog). Rule: a disc whose peripheral field
+# has no analog-stick bit (21/22) must work with the digital DC Arcade Stick, so it reads the d-pad -> dpad.
+# dcpad.py refuses dpad for a disc that needs an analog stick. Columns are TAB separated.
+# id	rom	peripherals	stick	note
+T38706M	Ikaruga	01BBA10	dpad	reads only the d-pad (the maintainer 2026-11-15: ship does not move with the stick on analog)
+T46703M	Border Down (Japan)	0199A10	dpad	no analog bit
+T47803M	Karous (Japan)	0199A10	dpad	no analog bit
+T46705M	Under Defeat (Japan)	0001A10	dpad	no analog bit
+T20401M	Zero Gunner 2 (Japan)	01BBA10	dpad	no analog bit
+T29102M	Triggerheart Exelica (Japan)	0019810	dpad	no analog bit
+T1214N	Gunbird 2 (USA)	01BBA00	dpad	no analog bit
+T9907M	Psyvariar 2 - The Will to Fabricate (Japan)	063BA10	analog	disc asks for an analog stick: keep the base mapping
+T1221N	Mars Matrix	07BBA10	analog	disc asks for an analog stick: keep the base mapping
+T1215N	Cannon Spike	07BBA10	analog	disc asks for an analog stick: keep the base mapping

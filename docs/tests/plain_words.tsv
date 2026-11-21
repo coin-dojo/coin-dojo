@@ -1,0 +1,15 @@
+# docs/tests/plain_words.tsv - the plain gloss each jargon term needs in customer copy (#282).
+#
+# Read by docs/tests/test_plain_words.py. Format: term<TAB>gloss phrase. The term is a key of JARGON in that test.
+# A sentence of docs/START.md, docs/SCRAPING.md or the booklet (docs/manual/) that uses the term must contain the
+# gloss phrase, or the next sentence must (case-insensitive, plain substring). A term with no line here may not
+# appear at all. Add a line only with a gloss Everyday Owner (the Everyday Owner) would understand without help.
+SMB	network folder
+mDNS	name the cabinet has on your home network
+terminal	window where you type commands
+SSH	type commands on the cabinet from another computer
+partition	part of the card
+mount	open the card on your computer
+repo	project's files
+checksum	fingerprint of the file
+SHA	fingerprint of the file

@@ -1,0 +1,94 @@
+# Area: host. Where the cabinet is, how to reach it, and who runs the game there.
+# Format (all areas): name -> type, default (or required: true), allowed/min/max/pattern, description, consumers,
+# targets (default: cabinet and vm), exports (Ansible variable names the same value also sets). tools/config.py
+# validates these files; `make config-docs` turns them into docs/CONFIG.md.
+area: host
+description: Cabinet address, SSH login, the cabinet user, and where the sudo password is looked up.
+variables:
+  hk_cabinet_host:
+    type: str
+    pattern: "[A-Za-z0-9][A-Za-z0-9.:-]{0,252}"   # host name, IPv4 or IPv6: no spaces, quotes or shell characters (#148)
+    required: true
+    targets: [cabinet]
+    description: >-
+      Address of the cabinet (hostname or IP) that `make deploy`, `make cabinet-guard` and `make smoke-launch` talk to.
+      There is no default on purpose: it is yours. The test VM never uses it.
+    example: arcade.local
+    consumers: [mk/cabinet.mk, ansible/bin/deploy, vm/vm_guard.py]
+  hk_ssh_port:
+    type: int
+    default: 22
+    min: 1
+    max: 65535
+    targets: [cabinet]
+    description: SSH port of the cabinet.
+    consumers: [ansible/bin/deploy]
+  hk_ssh_user:
+    type: str
+    default: "{{ hk_cabinet_user }}"
+    pattern: "[a-z_][a-z0-9_-]{0,31}"   # a POSIX user name: lands in ssh arguments (#148)
+    description: SSH login on the cabinet (and on the VM). Follows the cabinet user unless you set it.
+    consumers: [mk/cabinet.mk, ansible/bin/deploy]
+  hk_ssh_key:
+    type: path
+    default: "~/.ssh/id_ed25519"
+    description: Private key on this Mac for the cabinet (key auth only; `~` is this Mac's home).
+    consumers: [mk/cabinet.mk, ansible/bin/ans]
+  hk_ssh_common_args:
+    type: str
+    default: ""
+    description: Extra ssh options for Ansible (ansible_ssh_common_args). Empty for the cabinet.
+    consumers: [ansible/bin/deploy]
+  hk_vm_host:
+    type: str
+    pattern: "[A-Za-z0-9][A-Za-z0-9.:-]{0,252}"   # host name, IPv4 or IPv6: no spaces, quotes or shell characters (#148)
+    default: host.lima.internal
+    targets: [vm]
+    description: >-
+      Address of the test VM as seen from the Ansible container. The lima SSH forward lives on the Mac's loopback,
+      which Colima names host.lima.internal.
+    consumers: [ansible/bin/deploy, vm/vm_guard.py]
+  hk_vm_port:
+    type: int
+    default: 60124
+    min: 1
+    max: 65535
+    targets: [vm]
+    description: The Mac port lima forwards to the VM's sshd (vm/coin-dojo-test.yaml ssh.localPort).
+    consumers: [ansible/bin/deploy, vm/vm_guard.py]
+  hk_cabinet_user:
+    type: str
+    default: coindojo
+    pattern: "[a-z_][a-z0-9_-]{0,31}"
+    description: The Linux user that runs ES-DE and the games on the cabinet (the image's user).
+    consumers: [ansible/roles/cabinet_tweaks, ansible/roles/dreamcast, ansible/roles/retroarch122, ansible/roles/power, ansible/roles/settings, ansible/roles/sshd_keyonly]
+    exports: [cabinet_user, settings_user]
+  hk_cabinet_group:
+    type: str
+    default: "{{ hk_cabinet_user }}"
+    pattern: "[a-z_][a-z0-9_-]{0,31}"
+    description: Primary group of the cabinet user.
+    consumers: [ansible/roles/cabinet_tweaks, ansible/roles/dreamcast, ansible/roles/retroarch122, ansible/roles/power, ansible/roles/settings]
+    exports: [cabinet_group, settings_group]
+  hk_cabinet_uid:
+    type: int
+    default: 1000
+    min: 1
+    max: 60000
+    description: >-
+      Numeric uid of the cabinet user (the session, flycast, Fightcade and the power daemon use /run/user/<uid>).
+      The first user of a Debian install is 1000; check with `id -u` on your cabinet. make image creates the
+      user with this uid (it removes Pi OS's stock pi, which holds 1000) and stops if they differ.
+    consumers: [ansible/roles/power, ansible/roles/dreamcast]
+    exports: [power_uid]
+  hk_become_keychain:
+    type: str
+    default: coin-dojo-sudo
+    description: Name of the macOS Keychain item that holds the cabinet's sudo password (the value never goes in config).
+    consumers: [ansible/bin/deploy]
+  hk_become_env:
+    type: str
+    default: COIN_DOJO_BECOME_PASS
+    pattern: "[A-Z_][A-Z0-9_]*"
+    description: Environment variable that overrides the Keychain item for the sudo password.
+    consumers: [ansible/bin/deploy]

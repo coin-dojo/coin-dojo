@@ -1,0 +1,25 @@
+# ci/areas.tsv - which test files each CI area runs. Read by tools/ci_select.py (make test-changed|test-area|test-list, make ci).
+#
+# One line per area:   <area><TAB><lane><TAB><test globs, space separated, or - for none>
+#   lane: light (shares 2 slots, may run next to a heavy run) or heavy (takes the one heavy slot, tools/cilock.py).
+#   globs: fnmatch on git-tracked paths, `*` also matches `/`. A glob that matches no tracked file FAILs the
+#          selector test (stale glob); so does a tracked test_*.py that no area reaches (an orphan never runs).
+#   always: not selectable by a rule; added to every selection that runs any test (repo-wide gates).
+#   lint, security, docs: action areas. lint/security run through make lint / make security (no test files).
+#
+# area	lane	test globs
+ansible	heavy	ansible/tests/test_*.py ansible/roles/*/tests/test_*.py
+collections	light	skills/collections/tests/test_*.py
+controls	light	skills/controls/tests/test_*.py
+theme	light	themes/tests/test_*.py skills/badges/tests/test_*.py
+brand	light	brand/tests/test_*.py
+preview	light	skills/local-preview/tests/test_*.py
+settings	light	skills/settings/tests/test_*.py
+build	heavy	build/tests/test_*.py build/*/tests/test_*.py skills/build-image/tests/test_*.py
+vm	heavy	vm/tests/test_*.py
+smoke	heavy	tests/smoke/test_*.py
+tools	light	tools/tests/test_*.py mk/tests/test_*.py
+docs	light	docs/tests/test_*.py
+always	light	tests/test_*.py
+lint	light	-
+security	light	-

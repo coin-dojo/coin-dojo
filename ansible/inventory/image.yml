@@ -1,0 +1,21 @@
+# Inventory for the image build (#244): ONE host, the image's root filesystem mounted at /mnt/root inside the
+# privileged build container (skills/build-image/scripts/provision.sh). Never a live machine: the connection is a
+# chroot, so no SSH, no password and no key are involved. Only image.yml uses it (`-i inventory/image.yml`).
+all:
+  children:
+    image:
+      hosts:
+        coin-dojo-image:
+          ansible_connection: community.general.chroot
+          ansible_host: /mnt/root
+          ansible_python_interpreter: /usr/bin/python3
+          # --- role switches for the image (what a chroot cannot do; the cabinet keeps the defaults) ---
+          # #93: in the chroot every task runs as root, so `sudo -n true` succeeds without any cached credential;
+          # the drop-in itself is still installed and visudo-validated.
+          cabinet_sudo_cache_proof: false
+          # settings (#34): the libraries the SETTINGS app loads; the cabinet had them, a stock Pi OS Lite does not.
+          settings_packages: [libsdl2-2.0-0, libcairo2, libfreetype6]
+    # The ES-DE roles read group_vars/esde.yml (paths, game guard, restart handler vars), as on the cabinet.
+    esde:
+      children:
+        image:

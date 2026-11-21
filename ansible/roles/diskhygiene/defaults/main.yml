@@ -1,0 +1,174 @@
+# diskhygiene (#91): keep the cabinet's root fs (/dev/mmcblk0p2, 6.9G) from filling up. Play 2 in
+# site.yml (host pios). /data is a separate partition and is never touched here.
+#
+# 1. dpkg path-exclude drop-in: docs, man, info, lintian and non-English locales are not unpacked
+#    on any future install or upgrade (copyright files and English locales stay).
+# 2. prune: delete the files those rules already cover (measured read-only on every dry run).
+# 3. purge: remove whole package groups, ONLY the groups listed in diskhygiene_purge (the maintainer's call).
+#    Every group is simulated with `apt-get -s purge` on every run (read-only) and the plan fails
+#    when a list names a protected package, or when an approved group would cascade (apt removes
+#    more than the list). Never `apt autoremove`: the lists below are the exact closures, measured.
+# A dry run (make deploy TAGS=diskhygiene) needs no sudo: every read runs as the cabinet user.
+# Revert: delete the drop-in; `sudo apt-get install --reinstall <pkg>` brings a package's docs back;
+# `sudo apt-get install <pkgs>` brings a purged group back.
+diskhygiene_dpkg_cfg: /etc/dpkg/dpkg.cfg.d/50-coin-dojo-diskhygiene   # internal
+
+# dpkg order: the last matching rule wins, so the includes come after the excludes.
+diskhygiene_path_excludes:   # internal
+  # doc/*/* (#293), not doc/*: a package's top-level doc entry stays. Debian ships many as a symlink to a
+  # sibling package's doc dir (cpp-14, libstdc++6, openssh-server ...); doc/* dropped that link and with it the
+  # package's only reachable copyright file, a release blocker (licences.py --strict).
+  - /usr/share/doc/*/*
+  - /usr/share/man/*
+  - /usr/share/info/*
+  - /usr/share/lintian/*
+  - /usr/share/locale/*
+diskhygiene_path_includes:   # internal
+  - /usr/share/doc/*/copyright
+  - /usr/share/locale/en*
+  - /usr/share/locale/locale.alias
+
+diskhygiene_prune: true   # internal
+
+# Never removed, whatever a group says (globs; dpkg package names). The stack, its runtime libraries,
+# and what keeps the cabinet reachable and recoverable.
+diskhygiene_protect:   # internal
+  - retroarch*
+  - libretro*
+  - cage
+  - libwayland*
+  - mesa*
+  - libgl*
+  - libegl*
+  - libgles*
+  - libgbm*
+  - libdrm*
+  - libvulkan*
+  - libllvm*
+  - libsdl2*
+  - libzip5
+  - libminiupnpc18
+  - libwpewebkit*
+  - cog
+  - fuse3
+  - pulseaudio*
+  - python3
+  - python3-minimal
+  - python3.*
+  - libpython3*
+  - python3-apt
+  - openssh-server
+  - openssh-client
+  - openssh-sftp-server
+  - sudo
+  - systemd
+  - systemd-*
+  - libsystemd*
+  - udev
+  - libudev*
+  - dpkg
+  - apt
+  - libapt*
+  - sqv
+  - gpgv
+  - libc6
+  - libc-bin
+  - base-files
+  - bash
+  - coreutils
+  - linux-image*
+  - raspi-firmware
+  - raspberrypi-*
+  - rpi-eeprom
+  - firmware-brcm80211
+  - rpi-swap
+  - network-manager
+  - wpasupplicant
+  - bluez
+  - gdb
+
+# Package groups, each the exact `apt-get -s purge` closure measured on the cabinet 2026-11-15
+# (sizes = dpkg Installed-Size). None is approved yet: add a group name to diskhygiene_purge.
+diskhygiene_purge_groups:   # internal (the measured closures; hk_purge_groups picks which to apply)
+  # 298 MB. Compilers, -dev headers and kernel headers: nothing on the cabinet builds (Build builds in
+  # arm64 containers on the laptop; no dkms). Low risk.
+  # #244: NOT the C preprocessor (cpp*, and libisl23/libmpc3 it needs): fightcade's x11-xserver-utils depends on
+  # cpp (xrdb), so purging it would remove that too (the plan's cascade check refused it in the image build).
+  toolchain:
+    - build-essential
+    - g++
+    - gcc
+    - g++-14
+    - gcc-14
+    - g++-aarch64-linux-gnu
+    - gcc-aarch64-linux-gnu
+    - g++-14-aarch64-linux-gnu
+    - gcc-14-aarch64-linux-gnu
+    - gcc-14-for-host
+    - linux-headers-rpi-v8
+    - linux-headers-6.18.50+rpt-rpi-v8
+    - linux-headers-rpi-2712
+    - linux-headers-6.18.50+rpt-rpi-2712
+    - linux-headers-6.18.50+rpt-common-rpi
+    - linux-kbuild-6.18.50+rpt
+    - linux-libc-dev
+    - libstdc++-14-dev
+    - libgcc-14-dev
+    - libc6-dev
+    - libc-dev-bin
+    - libcrypt-dev
+    - rpcsvc-proto
+    - libasan8
+    - libtsan2
+    - liblsan0
+    - libubsan1
+    - libhwasan0
+    - libitm1
+    - libcc1-0
+    - dpkg-dev
+    - libdpkg-perl
+    - fakeroot
+    - libfakeroot
+    - libalgorithm-merge-perl
+    - libalgorithm-diff-xs-perl
+    - libalgorithm-diff-perl
+    - libfile-fcntllock-perl
+    - patch
+    - pahole
+    - sq
+  # 219 MB. Wi-Fi/BT firmware for chips the Pi 5 does not have (it uses Broadcom/Cypress, which stays).
+  # Low risk; only a USB Wi-Fi/BT/Ethernet dongle with one of these chips would need them back.
+  firmware_other_chips:
+    - firmware-atheros
+    - firmware-mediatek
+    - firmware-realtek
+    - firmware-libertas
+  # 35 MB. Matroska tools (and the Qt6 core only they use). Low risk.
+  mkvtoolnix:
+    - mkvtoolnix
+    - libqt6core6t64
+    - libb2-1
+    - libmatroska7
+    - libebml5
+    - libpugixml1v5
+  # 22 MB. Raspberry Pi Connect (remote shell); not running on the cabinet. the maintainer's call.
+  rpi_connect:
+    - rpi-connect-lite
+
+# Approved groups (names from above). Empty = plan and report only.
+# The maintainer 2026-11-15: "remove build tools (we build from the MacBook or the operator's laptop)" -> hk_purge_groups default [toolchain].
+diskhygiene_purge: "{{ hk_purge_groups }}"
+
+# Unused ES-DE themes (the maintainer 2026-11-15: "remove themes"), 673 MB; ES-DE's theme downloader can bring one back.
+# The active theme (cabinet_theme_name) can never be listed: the role asserts it.
+diskhygiene_theme_root: "/home/{{ hk_cabinet_user }}/ES-DE/themes"
+diskhygiene_theme_keep: "{{ hk_theme_keep }}"
+diskhygiene_remove_themes:   # internal (the maintainer's list of themes to drop; not a lever)
+  - art-book-next-es-de
+  - artflix-revisited-es-de
+  - aura-es-de
+  - epic-noir-revisited-es-de
+  - iconic-es-de
+
+# Apply only: these must still be installed after a purge.
+diskhygiene_must_stay: [retroarch, cage, openssh-server, sudo, systemd, python3, libwayland-client0, mesa-libgallium]   # internal

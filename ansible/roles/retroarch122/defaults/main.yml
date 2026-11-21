@@ -1,0 +1,133 @@
+# retroarch122 (#63): RetroArch 1.22.2 for ALL RetroArch systems + the GLES N64 core and its config,
+# so a rebuild reproduces the stack that has run on the cabinet since 2026-11-14 ~21:00 (#49, #61, #62).
+# Why 1.22: Debian's RetroArch 1.20 + Pi libwayland 1.24 deadlocks in flush_wayland_fd (RA #18148).
+# Why a GLES core: Debian's mupen64plus_next wants desktop GL; the Pi 5 is GLES-only.
+#
+# Ship-no-artifacts: the binaries are NEVER in git. They come from the local build outputs below
+# (git-ignored), made by build/retroarch/build.sh and build/n64/build.sh (#61). bin/ans mounts only the
+# repo, so the source files must sit inside this checkout. No NAS copy is kept today (see README).
+# Every artifact is pinned by sha256 (the live file on 2026-11-14): a different local build fails the
+# play before anything is copied; bump the pin on purpose after a rebuild that is proven on the cabinet.
+
+# --- levers: every value below is a pass-through of a declared hk_* variable (config/variables.d, docs/CONFIG.md).
+# Change them in config/local.yml, never here. Everything under "internal" is not a lever.
+cabinet_user: "{{ hk_cabinet_user }}"
+cabinet_group: "{{ hk_cabinet_group }}"
+cabinet_home: "{{ hk_cabinet_home }}"
+retroarch122_crt_enabled: "{{ hk_crt_enabled }}"
+# Preset everyone gets, and the cores that get the pass-through instead (upscaled 3D: scanlines on a 3x
+# rendering look wrong). Names = RetroArch library_name = folders under config/.
+retroarch122_crt_preset: "{{ hk_crt_preset }}"
+retroarch122_crt_off_cores: "{{ hk_crt_off_cores }}"
+# RetroAchievements (#45, area achievements). The token is NOT a lever: bin/deploy passes `cheevos_token` from the
+# Keychain in its private vars file, and the token task runs with no_log.
+retroarch122_cheevos_enable: "{{ hk_cheevos_enable }}"
+retroarch122_cheevos_user: "{{ hk_cheevos_user }}"
+retroarch122_cheevos_hardcore: "{{ hk_cheevos_hardcore }}"
+retroarch122_cheevos_hardcore_by_core: "{{ hk_cheevos_hardcore_by_core }}"
+# Never write while an emulator runs: RetroArch rewrites cfg/remaps on exit; flycast holds the screen.
+retroarch122_guard_procs: "{{ hk_game_procs | join('|') }}"
+
+# --- internal (not levers) ---------------------------------------------------------------------
+# #171 the cabinet wins (the maintainer 2026-11-17): the SETTINGS app's state file ("cheevos_enable" / "cheevos_hardcore":
+# true|false) overrides retroarch122_cheevos_enable / _hardcore, and any "cheevos_login" (true|false: logged in or
+# out in the app) means the app owns the account: no user name and no token are written. Missing/malformed = the
+# levers, as before.
+retroarch122_settings_state: "{{ cabinet_home }}/.config/coin-dojo/settings-state.json"   # internal
+retroarch122_cheevos_app_login: false   # internal: set from the state file by the tasks
+retroarch122_build_root: "{{ hk_repo_root }}/build"
+
+# Install dirs. Modes match the live hand setup (umask 002), so a dry run on today's box is clean.
+retroarch122_dir: /data/emulators/retroarch-1.22
+retroarch122_core_dir: /data/emulators/mupen64plus-gles
+
+# {src: local build output, dest: on the cabinet, sha256: live 2026-11-14, mode}
+retroarch122_artifacts:
+  # RetroArch v1.22.2 (commit 69a4f0e) + patches 0001-egl-loop-only-matched-configs,
+  # 0002-wayland-gles2-request-on-gles3-build; GLES/Wayland/KMS/udev, stripped.
+  - src: "{{ retroarch122_build_root }}/retroarch/out/retroarch"
+    dest: "{{ retroarch122_dir }}/retroarch"
+    sha256: 32041d76bcb87fd85749e0bcec415f59ffe725483fe66ecc9b414272a0c50cfa
+    mode: "0755"
+  # image_unpinned (#244): a fresh build writes the newer BUILDINFO format (build/retroarch/README.md), so an image
+  # build copies it without the pin; the binary itself stays pinned everywhere.
+  - src: "{{ retroarch122_build_root }}/retroarch/out/BUILDINFO"
+    dest: "{{ retroarch122_dir }}/BUILDINFO"
+    sha256: ceef04ec117244417bf46028489a3adb4af4e79cfa382e64418b78a7c3e977ab
+    mode: "0644"
+    image_unpinned: true
+  # mupen64plus-libretro-nx 15bada85, platform=rpi5_64_mesa FORCE_GLES3=1, debian:trixie arm64.
+  - src: "{{ retroarch122_build_root }}/n64/out/mupen64plus_next_libretro.so"
+    dest: "{{ retroarch122_core_dir }}/mupen64plus_next_libretro.so"
+    sha256: 4bc7731e2a13e58d547adb3cf54e5a5bec772fb8b63124cf752d352cccb4c845
+    mode: "0755"
+
+# RetroArch config (the MAIN retroarch.cfg: since #62's scope change every system runs 1.22 with it;
+# /data/emulators/retroarch-1.22/retroarch.cfg is no longer read and is not managed).
+retroarch122_cfg_dir: "{{ cabinet_home }}/.config/retroarch"
+# One lineinfile per key (RetroArch rewrites the file on exit). input_driver=udev: the x driver and the
+# Wayland input path both block under cage. Other keys belong to cabinet_tweaks.
+retroarch122_cfg_keys:
+  - { key: input_driver, value: udev }
+  - { key: input_joypad_driver, value: udev }
+  # CRT (#102): RetroArch 1.22 loads shaders ONLY from presets. With auto_shaders_enable=false the log
+  # says "Stock GLSL shaders will be used" and video_shader= is ignored. These two turn the auto presets
+  # below on (video_shader_enable was already true on the cabinet).
+  - { key: auto_shaders_enable, value: "{{ retroarch122_crt_enabled | bool | lower }}" }
+  - { key: video_shader_enable, value: "{{ retroarch122_crt_enabled | bool | lower }}" }
+
+# N64 (Mupen64Plus-Next). Whole-file copies of today's live files (RetroArch does not rewrite core
+# overrides, and remap_save_on_exit=false is set by cabinet_tweaks, #56).
+# .cfg: input_poll_type_behavior=1 + left-stick axis binds for P1/P2 so the stick drives both the analog
+#       stick and the D-pad. .rmp: Jab=B, Strong=C-Up, Fierce=R, Short=A, Forward=Z, Roundhouse=C-Down.
+# The .rmp is the ONLY writer of Mupen64Plus-Next.rmp (cabinet_tweaks dropped it, #122); its copy is
+# byte-identical to skills/controls/remaps/Mupen64Plus-Next/Mupen64Plus-Next.rmp (test). dir_mode/mode = live.
+# sha256 = the live file on 2026-11-14 (tests assert the repo copy still matches it).
+# Core overrides this role copies whole: no per-core lineinfile (hardcore exceptions) may write them too.
+retroarch122_whole_overrides: [Mupen64Plus-Next]   # internal
+retroarch122_n64_files:
+  - src: Mupen64Plus-Next.cfg
+    dest: "config/Mupen64Plus-Next/Mupen64Plus-Next.cfg"
+    dir_mode: "0755"
+    mode: "0664"
+    sha256: f8735a193698f9419bd1f03f88a7f92d4616698863879148b706f15c24cf12c2
+  - src: Mupen64Plus-Next.rmp
+    dest: "config/remaps/Mupen64Plus-Next/Mupen64Plus-Next.rmp"
+    dir_mode: "0755"
+    mode: "0644"
+    sha256: defa1476b6e8d6f4d4ddc3b3570fba6511bce7c55aa6bd9531203b1b65db8781
+# The remap's button table (RetroPad slot -> libretro id), P1 and P2 the same. Tests check the shipped
+# .rmp against it, so a swapped pair fails. Ids: 11=R, 12=L2 (N64 Z), 22=R-stick Y+ (C-Down), 23=Y- (C-Up).
+retroarch122_n64_remap_binds: { btn_a: "12", btn_l: "11", btn_r: "22", btn_x: "23" }
+
+# Core options (.opt keys, in place). gliden64 = the GLES renderer (parallel is Vulkan: grey on v3dv).
+# mupen64plus-43screensize stays with cabinet_tweaks (#65).
+retroarch122_n64_opt_keys:
+  - { key: mupen64plus-cpucore, value: dynamic_recompiler }
+  - { key: mupen64plus-rdp-plugin, value: gliden64 }
+
+# --- CRT shader (#102) -------------------------------------------------------------------------
+# The maintainer 2026-11-15: crt-pi "as default for most things". RA 1.22 auto presets (video_shader_parse.c,
+# video_shader_load_auto_shader_preset): in $rgui_config_directory (= {{ retroarch122_cfg_dir }}/config) a core preset
+# <CoreName>/<CoreName>.glslp wins over global.glslp (library_name, the same names as the remap/override folders).
+# Presets only #reference the shader files (path relative to the preset file), so there is one copy of each.
+retroarch122_shader_dir: "{{ retroarch122_cfg_dir }}/shaders/shaders_glsl"
+# libretro/glsl-shaders at a PINNED commit (2026-11-12). GPL-2.0-or-later (crt-pi, davej): downloaded on the
+# cabinet at deploy time and never stored in git (ship-no-artifacts). A different file fails get_url.
+retroarch122_shader_commit: a35069864b4bf30f8c8e740d57206543fb7e745e
+retroarch122_shader_base_url: "https://raw.githubusercontent.com/libretro/glsl-shaders/{{ retroarch122_shader_commit }}"
+# path = the file in that repo AND under retroarch122_shader_dir. sha256 = the file at that commit, which is
+# also what the cabinet has today (checked 2026-11-15), so a dry run shows no change for the two crt files.
+retroarch122_shader_files:
+  - path: crt/crt-pi.glslp
+    sha256: a7cdc9710b3f007948a1d02e749b2d5ea40ce9d605e5e23c245fcbae60c1fe79
+  - path: crt/shaders/crt-pi.glsl
+    sha256: dc2676b46f57a12501acc1792637c6b52363a7cc1c91f97b80abb2a670aa81d6
+  - path: stock.glsl
+    sha256: 86e57d35904bcd77299726cb65a23a687d28e3b3af12ad951b0a4450ecc1738b
+# The pass-through preset (upstream has no stock.glslp): one pass, stock.glsl, no filtering.
+retroarch122_shader_stock_preset: "stock.glslp"
+retroarch122_shader_stock_content: |
+  shaders = "1"
+  shader0 = "stock.glsl"
+  filter_linear0 = "false"

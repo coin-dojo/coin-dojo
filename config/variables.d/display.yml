@@ -1,0 +1,13 @@
+# Area: display. Screen and kernel switches of the cabinet. (The CRT shader levers join this file with the retroarch122 ticket.)
+area: display
+description: The Pi kernel page size (flycast needs 4 KB pages).
+variables:
+  hk_kernel_4k:
+    type: bool
+    default: true
+    description: >-
+      Boot the 4 KB-page kernel (`kernel=kernel8.img` under [all] in /boot/firmware/config.txt). flycast's JIT crashes
+      (errno 22) on the Pi 5 default 16 KB kernel. A reboot is never automatic: the deploy prints "reboot required".
+      False only stops managing the line; it does not remove one already there. The test VM sets it to false (no Pi
+      firmware, its kernel is already 4 KB).
+    consumers: [ansible/roles/cabinet_tweaks]

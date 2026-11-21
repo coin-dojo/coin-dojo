@@ -1,0 +1,25 @@
+# share (#266): the network folder for the ROM and BIOS folders (SMB) and <hostname>.local (mDNS).
+# hk_share_enable true: tasks/on.yml installs and configures it; false: tasks/off.yml stops and disables it.
+# Image build (coin_dojo_image): files and enabled units only; smbd and avahi start at the first boot.
+- name: The two shared folders are under the data partition (never a system path)
+  ansible.builtin.assert:
+    that:
+      - share_folders | map(attribute='name') | list == ['roms', 'bios']
+      - share_folders | map(attribute='path') | select('match', '^' ~ (share_data_root | regex_escape) ~ '/[^/]') | list | length == 2
+      - share_folders | map(attribute='path') | reject('search', '(^|/)\.\.(/|$)') | list | length == 2
+      - share_user | length > 0 and share_user != 'root'
+      - share_bios_veto | select('match', '^[A-Za-z0-9*?._-]+$') | list | length == share_bios_veto | length
+      - share_roms_veto | select('match', '^[A-Za-z0-9*?._-]+$') | list | length == share_roms_veto | length
+    fail_msg: >-
+      REFUSED: the network folder shares only roms and bios below {{ share_data_root }} as a normal user;
+      got {{ share_folders }} for {{ share_user }}; hk_share_bios_veto / hk_share_roms_veto items are names or patterns without `/`
+      ({{ share_bios_veto }}).
+    quiet: true
+
+- name: Network folder on
+  ansible.builtin.include_tasks: on.yml
+  when: share_enable | bool
+
+- name: Network folder off
+  ansible.builtin.include_tasks: off.yml
+  when: not share_enable | bool

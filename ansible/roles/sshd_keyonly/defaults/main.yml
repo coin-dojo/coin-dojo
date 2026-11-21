@@ -1,0 +1,34 @@
+# sshd_keyonly (#41): the Debian cabinet's sshd accepts SSH keys only (play 2 in site.yml, host pios).
+# The cabinet password stays for sudo and the local console; it is never accepted over SSH.
+# Owner: Build, placed in Platform's ansible as a self-contained role.
+cabinet_user: "{{ hk_cabinet_user }}"
+cabinet_home: "/home/{{ cabinet_user }}"   # internal
+
+# The key this deploy connects with. The role refuses to run unless its public half is in
+# ~coindojo/.ssh/authorized_keys, and the post-check opens a NEW connection with exactly this key.
+# Where bin/ans mounts hk_ssh_key INSIDE the Ansible container (/root/.ssh/id_ed25519): a fixed mount point, not the
+# Mac path of the lever (that path does not exist in the container).
+sshd_keyonly_private_key: "~/.ssh/id_ed25519"   # internal
+sshd_keyonly_authorized_keys: "{{ cabinet_home }}/.ssh/authorized_keys"   # internal
+
+sshd_keyonly_dropin_dir: /etc/ssh/sshd_config.d   # internal
+# sshd keeps the FIRST value it reads and sshd_config includes the drop-ins at its top, in name
+# order, so a 00- name wins over every other drop-in (rename_user.conf, cloud-init's 50-*, ...).
+sshd_keyonly_dropin: "{{ sshd_keyonly_dropin_dir }}/00-coin-dojo-keyonly.conf"   # internal
+# #299: the owner's password-SSH drop-in (Match User <cabinet user>), written by coindojo-firstboot once the owner set
+# their own password; the role keeps it and accepts password SSH for that user only while it exists.
+sshd_keyonly_owner_dropin: "{{ sshd_keyonly_dropin_dir }}/10-coindojo-owner-ssh.conf"   # internal
+# Legacy drop-in from skills/build-image before #41 (PasswordAuthentication yes): removed.
+sshd_keyonly_legacy: "{{ sshd_keyonly_dropin_dir }}/99-arcade.conf"   # internal
+# Backups live OUTSIDE sshd_config.d (an Include of *.conf there would load them).
+sshd_keyonly_backup_dir: "/etc/ssh/coin-dojo-backup/{{ ansible_date_time.iso8601_basic_short }}-sshd_keyonly"   # internal
+
+sshd_keyonly_sshd: /usr/sbin/sshd   # internal
+sshd_keyonly_service: ssh   # internal
+# Connection spec for `sshd -T -C` (evaluates Match blocks as a real login would).
+sshd_keyonly_match_spec: "user={{ cabinet_user }},host={{ hk_cabinet_hostname }},addr=127.0.0.1"
+
+# Post-check target: the same host/user Ansible uses.
+sshd_keyonly_check_host: "{{ ansible_host | default(inventory_hostname) }}"   # internal
+sshd_keyonly_check_user: "{{ ansible_user | default(cabinet_user) }}"   # internal
+sshd_keyonly_check_port: "{{ ansible_port | default(22) }}"   # internal

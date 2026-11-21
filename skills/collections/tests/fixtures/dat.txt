@@ -1,0 +1,46 @@
+clrmamepro (
+	name "FBNeo - Arcade Games"
+	version 1.0.0.03
+)
+
+game (
+	name "Pac-Man (Midway)"
+	releaseyear "1980"
+	rom ( name pacman.zip size 1 crc 00000000 )
+)
+
+game (
+	name "Galaga (Namco rev. B)"
+	releaseyear "1981"
+	rom ( name galaga.zip size 1 crc 00000000 )
+)
+
+game (
+	name "Avenue Fighter II: The World Warrior (World 910522)"
+	releaseyear "1991"
+	rom ( name sf2.zip size 1 crc 00000000 )
+)
+
+game (
+	name "Avenue Fighter II: The World Warrior (US 910522)"
+	releaseyear "1991"
+	rom ( name sf2u.zip size 1 crc 00000000 )
+)
+
+game (
+	name "Foo Fighters (Euro)"
+	releaseyear "1993"
+	rom ( name foo.zip size 1 crc 00000000 )
+)
+
+game (
+	name "Foo Fighters"
+	releaseyear "1993"
+	rom ( name foo2.zip size 1 crc 00000000 )
+)
+
+game (
+	name "Bar & Grill (Revision B)"
+	releaseyear "1994"
+	rom ( name bar.zip size 1 crc 00000000 )
+)

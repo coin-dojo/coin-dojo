@@ -1,0 +1,11 @@
+# Smash T.V. twin stick (#59, NOT TESTED). FBNeo has no Smash TV special case, but its generic twin-stick
+# rule (retro_input.cpp "Handle Twin stick games": descriptions "Fire Up/Down/Left/Right") puts P1's fire
+# directions on P1's right analog, exactly like Robotron. So this is robotron.rmp: user 2 feeds core
+# port 1 and the P2 stick's d-pad becomes P1's right analog (up 23, down 22, left 21, right 20).
+# P1 stick moves, P2 stick fires. One player only (the game's own 2-player mode needs this file removed).
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "0"
+input_player2_btn_up = "23"
+input_player2_btn_down = "22"
+input_player2_btn_left = "21"
+input_player2_btn_right = "20"

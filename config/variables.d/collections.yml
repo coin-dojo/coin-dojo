@@ -1,0 +1,43 @@
+# Area: collections. The generated ("virtual") systems of the ES-DE main screen and the extra flags of the nested build.
+area: collections
+description: Names of the generated systems (single source for every script and role) and extra `collgen.py nested` flags.
+variables:
+  hk_virtual_systems:
+    type: list
+    items: str
+    default: [must-play, must-play-genres, genres, series, decades, systems, fightcade, trophies, settings, quit]
+    description: >-
+      Slugs of the generated (virtual) systems: their gamelists are built by the deploy, never edited or copied, and every
+      reader of a gamelists folder skips them. The slug is also the theme badge name. All but `fightcade`, `trophies`, `settings` and `quit`
+      are built by `collgen.py nested` (carousel order = list order, title = the slug in capitals); those four are one-entry
+      tool systems (TROPHIES #176, SETTINGS, FIGHTCADE and QUIT TO MAIN MENU #214), built only when their app is installed. Single source: scripts read it through `skills/collections/nested.py`
+      (env HK_VIRTUAL_SYSTEMS as JSON, else `virtual_systems.json` beside it, which the role writes next to the shipped tools; else this file in a checkout).
+    consumers: [skills/collections/nested.py, skills/controls/controls.py, ansible/roles/esde_collections]
+    exports: [esde_virtual_systems]
+  hk_must_play_top:
+    type: int
+    default: 25
+    min: 5
+    max: 100
+    description: >-
+      MUST PLAY shows the best-rated this-many games of each system (#182; the maintainer 2026-11-17: at least 20 or 30). Ties go
+      to your Cabinet Picks, unrated games come last. A system with fewer games shows them all.
+    consumers: [ansible/roles/esde_collections]
+    exports: [esde_collections_must_play_top]
+  hk_must_play_genre_min_stars:
+    type: float
+    default: 4.5
+    min: 0
+    max: 5
+    description: >-
+      MUST PLAY GENRES shows every game rated at least this many stars (0-5, the scraped rating), one folder per genre
+      (#182). Needs `must-play-genres` in hk_virtual_systems.
+    consumers: [ansible/roles/esde_collections]
+    exports: [esde_collections_must_play_genre_min]
+  hk_nested_args:
+    type: list
+    items: str
+    default: []
+    description: Extra flags for `collgen.py nested` in the esde_collections role (for example `["--min-decade", "1"]`).
+    consumers: [ansible/roles/esde_collections]
+    exports: [esde_collections_nested_args]

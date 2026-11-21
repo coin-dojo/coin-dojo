@@ -1,0 +1,56 @@
+# Area: dev. The tools a maintainer runs on this Mac: the Forgejo forge (tickets, releases, changelog links), the
+# worktree folder, the stock-image backup for the local preview. Defaults are neutral: a contributor without a forge
+# leaves them unset and the tools that need one stop with a message that names the variable (never a silent default).
+# Read by scripts through tools/hkconfig.py (python) and tools/hkcfg (shell): `tools/config.py get --soft NAME`.
+area: dev
+description: Forgejo forge, Keychain item names for its tokens, worktree folder, preview image.
+variables:
+  hk_forge_url:
+    type: str
+    default: ""
+    description: >-
+      Base URL of your Forgejo (or Gitea) server, no trailing slash (`http://forge.lan:3000`). Used by tools/tickets.py,
+      tools/release.py and the compare links of tools/changelog.py. Empty = no forge: those tools stop and say so.
+    example: http://forge.lan:3000
+    consumers: [tools/tickets.py, tools/release.py, tools/changelog.py]
+  hk_forge_repo:
+    type: str
+    default: ""
+    pattern: "|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+    description: The repository on that forge as `owner/name` (tickets are its issues, releases its releases). Empty = no forge.
+    example: alice/coin-dojo
+    consumers: [tools/tickets.py, tools/release.py, tools/changelog.py]
+  hk_forge_keychain:
+    type: str
+    default: ""
+    description: >-
+      Name of the macOS Keychain item with the forge ADMIN token (the one that may create releases, tools/release.py;
+      tickets only use it with TICKETS_ADMIN_FALLBACK=1). The value never goes in config; FORGEJO_TOKEN overrides it.
+      Empty = only FORGEJO_TOKEN.
+    consumers: [tools/release.py, tools/tickets.py]
+  hk_forge_user:
+    type: str
+    default: ""
+    description: Account name of that admin Keychain item (`security -a`). Empty = any account.
+    consumers: [tools/tickets.py]
+  hk_forge_bot_keychain:
+    type: str
+    default: ""
+    description: >-
+      Name of the macOS Keychain item with the ticket bot's API token (comments and labels appear as that user).
+      FORGEJO_TOKEN overrides it. Empty = only FORGEJO_TOKEN.
+    consumers: [tools/tickets.py]
+  hk_worktree_dir:
+    type: path
+    default: "~/coin-dojo-wt"
+    description: Folder for the maintainer's worktrees (`~` is this Mac's home).
+    consumers: [tools/wt, tools/housekeeping.sh]
+  hk_stock_image:
+    type: str
+    default: ""
+    aliases: [hk_iconic_image]
+    description: >-
+      Path of YOUR stock card image (a backup of your own cabinet's card) that skills/local-preview/preview.sh renders
+      when you pass no argument. Nothing ships it. Empty = pass the image as the argument. Old name hk_iconic_image
+      (#240) still works in a local file.
+    consumers: [skills/local-preview/preview.sh]

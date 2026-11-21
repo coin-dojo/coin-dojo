@@ -1,0 +1,192 @@
+# cores (#244): see defaults/main.yml. Order: the launcher's table (control node) -> missing cores (built ones from
+# build/*/out after their own .sha256 check; no build output = buildbot + WARN unless strict, #274; the
+# rest from the buildbot) -> every core present -> missing ROM folders.
+# Nothing that exists is replaced; a dry run lists what would be added.
+
+- name: The launcher's systems and cores (launch.py CORE_BY_SYSTEM, read on the control node)
+  ansible.builtin.command:
+    argv: [python3, -I, "{{ role_path }}/files/launcher_table.py", --launch, "{{ cores_launch_src }}"]
+  delegate_to: localhost
+  become: false
+  register: cores_table_run
+  changed_when: false
+  check_mode: false
+
+- name: Parse the table
+  ansible.builtin.set_fact:
+    cores_table: "{{ cores_table_run.stdout | from_json }}"
+
+- name: Every built core is one the launcher runs (no dead entry in cores_built)
+  ansible.builtin.assert:
+    that: cores_built.keys() | difference(cores_table.cores) | length == 0
+    fail_msg: "cores_built names {{ cores_built.keys() | difference(cores_table.cores) }}, which launch.py does not run"
+    quiet: true
+
+- name: Is the core dir there?
+  ansible.builtin.stat:
+    path: "{{ cores_table.core_dir }}"
+  register: cores_dir_stat
+
+- name: Core dir (only when missing)
+  ansible.builtin.file:
+    path: "{{ cores_table.core_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: not cores_dir_stat.stat.exists
+
+- name: Which cores are installed
+  ansible.builtin.stat:
+    path: "{{ cores_table.core_dir }}/{{ item }}_libretro.so"
+  loop: "{{ cores_table.cores }}"
+  register: cores_have
+
+- name: Cores to add
+  ansible.builtin.set_fact:
+    cores_missing: "{{ cores_have.results | rejectattr('stat.exists') | map(attribute='item') | list }}"
+
+- name: Cores that would be added
+  ansible.builtin.debug:
+    msg: "missing cores: {{ cores_missing }}"
+  when: cores_missing | length > 0
+
+# --- built cores (local build outputs, checked against the .sha256 their build wrote) ------------------------------
+# #274: a built core is used when its build output is there. Without it a release (cores_require_built, i.e.
+# HK_LICENCES_STRICT=1) stops; anything else (deploys, personal and offline images) downloads it from the buildbot
+# with one WARN line per core, as before #274.
+- name: Which built cores have a build output (control node)
+  ansible.builtin.stat:
+    path: "{{ cores_built[item] }}"
+  delegate_to: localhost
+  become: false
+  loop: "{{ cores_missing | select('in', cores_built.keys() | list) | list }}"
+  register: cores_built_outs
+  check_mode: false
+
+- name: Built cores from build/*/out, and the ones that fall back to the buildbot
+  ansible.builtin.set_fact:
+    cores_from_build: "{{ cores_built_outs.results | selectattr('stat.exists') | map(attribute='item') | list }}"
+    cores_fallback: "{{ cores_built_outs.results | rejectattr('stat.exists') | map(attribute='item') | list }}"
+
+- name: A release uses source-pinned cores only (HK_LICENCES_STRICT=1)
+  ansible.builtin.assert:
+    that: cores_fallback | length == 0
+    fail_msg: >-
+      HK_LICENCES_STRICT=1 (a release) needs every core built from its pinned commit; not built:
+      {{ cores_fallback | join(', ') }} (make -C build cores, or make -C build <core>)
+    quiet: true
+  when: cores_require_built | bool
+
+- name: Buildbot fallback for a built core with no build output (personal use only)
+  ansible.builtin.debug:
+    msg: "WARN {{ item }}: buildbot core: not source-pinned, fine for personal use, not for a release"
+  loop: "{{ cores_fallback }}"
+
+- name: Check a built core against its own .sha256 (control node)
+  ansible.builtin.command:
+    cmd: "sha256sum -c --quiet {{ (cores_built[item] | basename) ~ '.sha256' }}"
+    chdir: "{{ cores_built[item] | dirname }}"
+  delegate_to: localhost
+  become: false
+  loop: "{{ cores_from_build }}"
+  register: cores_built_sums
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Refuse a built core that does not match its .sha256
+  ansible.builtin.assert:
+    that: item.rc == 0
+    fail_msg: >-
+      {{ cores_built[item.item] }} does not match its .sha256: build it again
+      (make -C build {{ item.item }}). {{ (item.stdout_lines + item.stderr_lines) | join('; ') }}
+    quiet: true
+  loop: "{{ cores_built_sums.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Copy the built cores (never from git)
+  ansible.builtin.copy:
+    src: "{{ cores_built[item] }}"
+    dest: "{{ cores_table.core_dir }}/{{ item }}_libretro.so"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  loop: "{{ cores_from_build }}"
+
+- name: Cores the buildbot gives (not in cores_built, or built but with no build output)
+  ansible.builtin.set_fact:
+    cores_download: "{{ cores_missing | reject('in', cores_built.keys() | list) | list + cores_fallback }}"
+
+# --- downloaded cores (libretro buildbot) ---------------------------------------------------------------------------
+- name: Downloaded cores (a fresh temp dir, removed afterwards even on failure)
+  when: cores_download | length > 0
+  become: true
+  block:
+    - name: Temp dir for the core zips
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: hk-cores.
+      register: cores_tmp
+      when: not ansible_check_mode
+
+    - name: Download the missing cores
+      ansible.builtin.get_url:
+        url: "{{ cores_buildbot }}/{{ item }}_libretro.so.zip"
+        dest: "{{ cores_tmp.path | default('/tmp') }}/{{ item }}_libretro.so.zip"
+        mode: "0600"
+        timeout: 120
+      register: cores_zip
+      retries: 3
+      delay: 5
+      until: cores_zip is succeeded
+      loop: "{{ cores_download }}"
+
+    - name: Unpack them into the core dir (only the core file)
+      ansible.builtin.command:
+        argv: [unzip, -o, -q, "{{ cores_tmp.path | default('/tmp') }}/{{ item }}_libretro.so.zip", "{{ item }}_libretro.so", -d, "{{ cores_table.core_dir }}"]
+        creates: "{{ cores_table.core_dir }}/{{ item }}_libretro.so"
+      loop: "{{ cores_download }}"
+  always:
+    - name: Remove the temp dir
+      ansible.builtin.file:
+        path: "{{ cores_tmp.path }}"
+        state: absent
+      when: cores_tmp.path is defined
+
+# --- proof ----------------------------------------------------------------------------------------------------------
+- name: Read the cores again
+  ansible.builtin.stat:
+    path: "{{ cores_table.core_dir }}/{{ item }}_libretro.so"
+  loop: "{{ cores_table.cores }}"
+  register: cores_after
+  when: not ansible_check_mode
+
+- name: Every core the launcher runs is installed
+  ansible.builtin.assert:
+    that: cores_after.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: "missing after install: {{ cores_after.results | rejectattr('stat.exists') | map(attribute='item') | list }}"
+    quiet: true
+  when: not ansible_check_mode
+
+# --- ROM folders (one per launcher system; only the missing ones) -----------------------------------------------------
+- name: Which ROM folders exist
+  ansible.builtin.stat:
+    path: "{{ cores_rom_root }}/{{ item }}"
+  loop: "{{ cores_table.systems }}"
+  register: cores_rom_dirs
+
+- name: Missing ROM folders (the cabinet user's)
+  ansible.builtin.file:
+    path: "{{ cores_rom_root }}/{{ item.item }}"
+    state: directory
+    owner: "{{ cores_user }}"
+    group: "{{ cores_group }}"
+    mode: "0755"
+  become: true
+  loop: "{{ cores_rom_dirs.results | rejectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ cores_rom_root }}/{{ item.item }}"

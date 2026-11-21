@@ -1,0 +1,522 @@
+# settings (#34/#35): SETTINGS app + its privilege rules. Order: libraries -> stage + gates on the host (/tmp:
+# py_compile, the app renders a frame with the host's cairo/FreeType/fonts against the fake nmcli) -> install app,
+# style kit, fonts, entry -> root helper -> sudoers (visudo-validated) -> polkit -> (VM only) standalone carousel
+# entry -> report whether ES-DE's es_systems.xml already has SETTINGS. Check mode writes only the /tmp stage.
+
+- name: Runtime libraries (VM only; the cabinet has them)
+  ansible.builtin.apt:
+    name: "{{ settings_packages }}"
+    state: present
+  become: true
+  when: settings_packages | length > 0
+
+- name: Shared libraries the app loads (ldconfig -p)
+  ansible.builtin.command:
+    argv: [/sbin/ldconfig, -p]
+  register: settings_ldconfig
+  changed_when: false
+  check_mode: false
+
+- name: libSDL2, libcairo, libfreetype are installed
+  ansible.builtin.assert:
+    that: settings_ldconfig.stdout is search(item | regex_escape)
+    fail_msg: "{{ item }} missing on {{ inventory_hostname }}: the SETTINGS app cannot start (settings_packages)"
+    quiet: true
+  loop: "{{ settings_libs }}"
+
+# ---- stage + gates --------------------------------------------------------------------------------------------
+- name: Staging dir on the host (/tmp; removed at the end, also in check mode)
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: hk-settings-
+  register: settings_stage
+  changed_when: false
+  check_mode: false
+
+- name: Stage, gate, install
+  block:
+    - name: Stage app, fake nmcli, helper
+      ansible.builtin.copy:
+        src: "{{ settings_src }}/{{ item }}"
+        dest: "{{ settings_stage.path }}/{{ item }}"
+        mode: "0755"
+      loop: "{{ settings_app_files + settings_data_files + ['fake_nmcli.py', 'coin_dojo_set_hostname.py', 'coin_dojo_set_password.py'] }}"
+      changed_when: false
+      check_mode: false
+
+    - name: Stage dirs for the style kit + fonts
+      ansible.builtin.file:
+        path: "{{ settings_stage.path }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop: [brand, fonts]
+      changed_when: false
+      check_mode: false
+
+    - name: Stage the style kit
+      ansible.builtin.copy:
+        src: "{{ settings_brand_src }}/{{ item }}"
+        dest: "{{ settings_stage.path }}/brand/{{ item }}"
+        mode: "0644"
+      loop: [brand.py, tokens.json]
+      changed_when: false
+      check_mode: false
+
+    - name: Stage the theme fonts (OFL)
+      ansible.builtin.copy:
+        src: "{{ settings_fonts_src }}/{{ item }}"
+        dest: "{{ settings_stage.path }}/fonts/{{ item }}"
+        mode: "0644"
+      loop: "{{ settings_fonts }}"
+      changed_when: false
+      check_mode: false
+
+    - name: py_compile every staged python file on the host's python
+      ansible.builtin.command:
+        argv: "{{ [settings_python, '-m', 'py_compile'] + (settings_app_files + ['fake_nmcli.py', 'coin_dojo_set_hostname.py', 'coin_dojo_set_password.py', 'brand/brand.py'])
+                  | map('regex_replace', '^', settings_stage.path ~ '/') | list }}"
+      changed_when: false
+      check_mode: false
+
+    - name: The style kit loads and passes its contrast pairs on the host
+      ansible.builtin.command:
+        argv: ["{{ settings_python }}", "{{ settings_stage.path }}/brand/brand.py", "check"]
+      changed_when: false
+      check_mode: false
+
+    - name: The staged app draws a frame with the host's cairo + FreeType + fonts (fake nmcli, no window, no log)
+      ansible.builtin.command:
+        argv: ["{{ settings_python }}", "{{ settings_stage.path }}/settings_app.py", "--png", "{{ settings_stage.path }}/gate.png",
+               "--nmcli", "{{ settings_stage.path }}/fake_nmcli.py", "--font-dir", "{{ settings_stage.path }}/fonts",
+               "--hostname", "gate", "--actions", "ok,down,down,ok,ok,text:abc"]
+      environment:
+        HOME: "{{ settings_stage.path }}"
+        HK_FAKE_NMCLI_STATE: "{{ settings_stage.path }}/fake-state.json"
+      changed_when: false
+      check_mode: false
+
+    - name: The staged boot menu (#210) draws a frame too (no window, no log)
+      ansible.builtin.command:
+        argv: ["{{ settings_python }}", "{{ settings_stage.path }}/bootmenu_app.py", "--png", "{{ settings_stage.path }}/gate-boot.png",
+               "--font-dir", "{{ settings_stage.path }}/fonts", "--hostname", "gate", "--countdown", "5", "--log", ""]
+      environment:
+        HOME: "{{ settings_stage.path }}"
+      changed_when: false
+      check_mode: false
+
+    - name: Boot menu gate frame exists (a PNG)
+      ansible.builtin.stat:
+        path: "{{ settings_stage.path }}/gate-boot.png"
+      register: settings_gate_boot_png
+      check_mode: false
+
+    - name: Gate frame exists (a PNG)
+      ansible.builtin.stat:
+        path: "{{ settings_stage.path }}/gate.png"
+      register: settings_gate_png
+      check_mode: false
+
+    - name: Gate passed
+      ansible.builtin.assert:
+        that: settings_gate_png.stat.exists and settings_gate_png.stat.size > 10000 and
+               settings_gate_boot_png.stat.exists and settings_gate_boot_png.stat.size > 10000
+        fail_msg: "ABORT: the staged SETTINGS app could not draw a frame on {{ inventory_hostname }}; nothing installed."
+        quiet: true
+
+    # ---- install ----------------------------------------------------------------------------------------------
+    - name: Is the app dir there yet? (a first-install dry run cannot copy into a dir it only pretends to create)
+      ansible.builtin.stat:
+        path: "{{ settings_dir }}"
+      register: settings_dir_st
+
+    - name: Files into the app dir can be shown (it exists, or this is a real run)
+      ansible.builtin.set_fact:
+        settings_dir_ready: "{{ settings_dir_st.stat.exists or not ansible_check_mode }}"
+
+    - name: App dirs
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ settings_user }}"
+        group: "{{ settings_group }}"
+        mode: "0755"
+      loop: ["{{ settings_dir }}", "{{ settings_dir }}/brand", "{{ settings_dir }}/fonts"]
+      become: true
+
+    - name: App files (+ the fake nmcli on the test VM only)
+      ansible.builtin.copy:
+        src: "{{ settings_stage.path }}/{{ item }}"
+        dest: "{{ settings_dir }}/{{ item }}"
+        remote_src: true
+        owner: "{{ settings_user }}"
+        group: "{{ settings_group }}"
+        mode: "0755"
+      loop: "{{ settings_app_files + (['fake_nmcli.py'] if settings_fake_nmcli else []) }}"
+      become: true
+      when: settings_dir_ready | bool
+      notify: Restart trophiesd
+
+    - name: Data files of the app (GAME LISTS' example picks)
+      ansible.builtin.copy:
+        src: "{{ settings_stage.path }}/{{ item }}"
+        dest: "{{ settings_dir }}/{{ item }}"
+        remote_src: true
+        owner: "{{ settings_user }}"
+        group: "{{ settings_group }}"
+        mode: "0644"
+      loop: "{{ settings_data_files }}"
+      become: true
+      when: settings_dir_ready | bool
+
+    - name: No fake nmcli outside the test VM
+      ansible.builtin.file:
+        path: "{{ settings_dir }}/fake_nmcli.py"
+        state: absent
+      become: true
+      when: not settings_fake_nmcli and settings_dir_ready | bool
+
+    - name: Style kit + fonts
+      ansible.builtin.copy:
+        src: "{{ settings_stage.path }}/{{ item }}"
+        dest: "{{ settings_dir }}/{{ item }}"
+        remote_src: true
+        owner: "{{ settings_user }}"
+        group: "{{ settings_group }}"
+        mode: "0644"
+      loop: "{{ ['brand/brand.py', 'brand/tokens.json'] + (settings_fonts | map('regex_replace', '^', 'fonts/') | list) }}"
+      become: true
+      when: settings_dir_ready | bool
+
+    # root-owned (#198): it names the login address and the helpers; the app only reads it. Never game_proc here
+    # (that and a loopback login address are test hooks of settings_app.py, a flag ES-DE never passes).
+    - name: Entry file (ES-DE's "ROM" for SETTINGS; the app reads it as its config)
+      ansible.builtin.copy:
+        dest: "{{ settings_entry }}"
+        content: "{{ {'nmcli': (settings_dir ~ '/fake_nmcli.py') if settings_fake_nmcli else settings_nmcli,
+                      'hostname_helper': settings_helper_dest, 'password_helper': settings_password_helper_dest, 'font_dir': settings_dir ~ '/fonts',
+                      'benchmark_state': settings_benchmark_state, 'benchmark_keys': settings_benchmark_keys,
+                      'cheevos_files': settings_cheevos_files, 'cheevos_api': settings_cheevos_api,
+                      'game_procs': trophiesd_game_procs, 'game_patterns': trophiesd_game_patterns,
+                      'attract': settings_attract,
+                      'lists': settings_lists} | to_nice_json }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+      when: settings_dir_ready | bool
+
+    - name: TROPHIES entry file (#176; only with RetroAchievements on and a user set)
+      ansible.builtin.copy:
+        dest: "{{ trophies_entry }}"
+        content: "{{ {'user': trophies_user, 'key_file': trophies_key_file, 'cache_dir': trophies_cache_dir,
+                      'settings_state': settings_benchmark_state, 'cheevos_files': settings_cheevos_files} | to_nice_json }}\n"
+        owner: "{{ settings_user }}"
+        group: "{{ settings_group }}"
+        mode: "0644"
+      become: true
+      when: settings_dir_ready | bool and trophies_enable | bool and trophies_user | length > 0
+      notify: Restart trophiesd
+
+    - name: No TROPHIES entry without RetroAchievements (the carousel drops it on the next build)
+      ansible.builtin.file:
+        path: "{{ trophies_entry }}"
+        state: absent
+      become: true
+      when: settings_dir_ready | bool and not (trophies_enable | bool and trophies_user | length > 0)
+
+    - name: TROPHIES key dir (0700)
+      ansible.builtin.file:
+        path: "{{ trophies_key_file | dirname }}"
+        state: directory
+        owner: "{{ settings_user }}"
+        group: "{{ settings_group }}"
+        mode: "0700"
+      become: true
+      no_log: true
+      when: (cheevos_web_key | default('')) | length > 0
+
+    - name: TROPHIES Web API key (from the Keychain via bin/deploy; 0600; never logged)
+      ansible.builtin.copy:
+        dest: "{{ trophies_key_file }}"
+        content: "{{ {'web_api_key': cheevos_web_key} | to_json }}\n"
+        owner: "{{ settings_user }}"
+        group: "{{ settings_group }}"
+        mode: "0600"
+      become: true
+      no_log: true
+      when: (cheevos_web_key | default('')) | length > 0
+      notify: Restart trophiesd
+
+    - name: TROPHIES cache dir (#177 trophiesd may write only here)
+      ansible.builtin.file:
+        path: "{{ trophies_cache_dir }}"
+        state: directory
+        owner: "{{ settings_user }}"
+        group: "{{ settings_group }}"
+        mode: "0755"
+      become: true
+      when: settings_dir_ready | bool and trophiesd_enable | bool
+
+    - name: TROPHIES overlay unit (#177; tap LP on the main menu)
+      ansible.builtin.template:
+        src: coin-dojo-trophiesd.service.j2
+        dest: "{{ trophiesd_unit_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+      when: settings_dir_ready | bool and trophiesd_enable | bool
+      notify: Restart trophiesd
+
+    - name: TROPHIES overlay runs and starts at boot (#244 image build - enabled only, it starts at the first boot)
+      ansible.builtin.systemd:
+        name: "{{ trophiesd_unit_name }}"
+        enabled: true
+        state: "{{ omit if coin_dojo_image | default(false) | bool else 'started' }}"
+        daemon_reload: "{{ not coin_dojo_image | default(false) | bool }}"
+      become: true
+      when: settings_dir_ready | bool and trophiesd_enable | bool
+      ignore_errors: "{{ ansible_check_mode }}"   # dry run before the first install: the unit does not exist yet
+
+    - name: No TROPHIES overlay without RetroAchievements (stop, disable)
+      ansible.builtin.systemd:
+        name: "{{ trophiesd_unit_name }}"
+        enabled: false
+        state: stopped
+      become: true
+      when: settings_dir_ready | bool and not trophiesd_enable | bool
+      failed_when: false   # never installed: nothing to stop
+
+    - name: No TROPHIES overlay unit without RetroAchievements
+      ansible.builtin.file:
+        path: "{{ trophiesd_unit_file }}"
+        state: absent
+      become: true
+      when: settings_dir_ready | bool and not trophiesd_enable | bool
+
+    # #270 L7: the root helpers go from the controller straight to their place as root, never through the user-owned
+    # /tmp stage (the stage only feeds the py_compile gate): a user could swap a staged file before a remote copy.
+    - name: Root helper for the cabinet name (root:root 0755, fixed paths, checks the name itself)
+      ansible.builtin.copy:
+        src: "{{ settings_src }}/coin_dojo_set_hostname.py"
+        dest: "{{ settings_helper_dest }}"
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+
+    # #271: the PASSWORD page. Root:root 0755 like the hostname helper; it takes the new password on stdin only.
+    - name: Root helper for the cabinet password (root:root 0755, no arguments, password on stdin)
+      ansible.builtin.copy:
+        src: "{{ settings_src }}/coin_dojo_set_password.py"
+        dest: "{{ settings_password_helper_dest }}"
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+
+    # One command, one argument shape per helper. validate refuses a file visudo rejects (a bad sudoers file locks sudo out).
+    - name: sudoers - coindojo may run the hostname helper with one RFC 1123 name and the password helper with none, nothing else
+      ansible.builtin.copy:
+        dest: "{{ settings_sudoers_file }}"
+        content: |
+          # coin-dojo SETTINGS app (#34, role settings): rename the cabinet. One command, one RFC 1123 label.
+          {{ settings_sudoers_line }}
+          # PASSWORD page (#271): change the cabinet password. One command, NO arguments (the empty-string form); the
+          # new password is the one line on its stdin, so it is never in argv, in sudo's log or in the journal.
+          {{ settings_password_sudoers_line }}
+        owner: root
+        group: root
+        mode: "0440"
+        validate: /usr/sbin/visudo -cf %s
+      become: true
+
+    - name: polkit - NetworkManager Wi-Fi scan / connect / save+forget for the cabinet user at the seat
+      ansible.builtin.template:
+        src: 50-coin-dojo-settings.rules.j2
+        dest: "{{ settings_polkit_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+      when: settings_polkit
+
+    # #206 TIME ZONE: hk_timezone is the default, the zone picked in the app (state file) wins. Read as the cabinet user
+    # (a symlink cannot make root read for it), never logged, parsed by the one shared filter. Idempotent: set only when the zone differs
+    # (a dry run skips the command, so it says what it would do).
+    - name: SETTINGS app state for the time zone (read as the cabinet user, never logged; missing is fine)
+      ansible.builtin.slurp:
+        src: "{{ settings_benchmark_state }}"
+      register: settings_tz_state_file
+      failed_when: false
+      become: true
+      become_user: "{{ settings_user }}"
+      no_log: true
+
+    - name: Time zones this cabinet knows (timedatectl list-timezones; no root needed)
+      ansible.builtin.command:
+        argv: [timedatectl, list-timezones]
+      register: settings_tz_list
+      changed_when: false
+      check_mode: false
+      when: not coin_dojo_image | default(false) | bool
+
+    # #244 image build: timedatectl needs a running systemd. A new image has no state file, so hk_timezone it is.
+    - name: No zone list in an image build (hk_timezone is used)
+      ansible.builtin.set_fact:
+        settings_tz_list: {stdout_lines: []}
+      when: coin_dojo_image | default(false) | bool
+
+    - name: Time zone from the cabinet's state file, when it is a real zone here
+      ansible.builtin.set_fact:
+        settings_tz_state: "{{ (settings_tz_state_file | hk_settings_state).timezone | default('') }}"
+
+    - name: Time zone wanted (the one set on the cabinet if listed, else hk_timezone)
+      ansible.builtin.set_fact:
+        settings_tz_wanted: "{{ settings_tz_state if settings_tz_state in settings_tz_list.stdout_lines else settings_timezone }}"
+
+    - name: WARN - the zone in the state file is not on this cabinet's list, hk_timezone is used
+      ansible.builtin.debug:
+        msg: "WARN: state file zone {{ settings_tz_state | quote }} is not in timedatectl list-timezones; using hk_timezone {{ settings_timezone }}"
+      when: settings_tz_state | length > 0 and settings_tz_state not in settings_tz_list.stdout_lines
+
+    # #244 image build: no timedated in a chroot; the zone is the /etc/localtime link timedated itself would write.
+    - name: The zone file exists in the image
+      ansible.builtin.stat:
+        path: "/usr/share/zoneinfo/{{ settings_tz_wanted }}"
+      register: settings_tz_file
+      failed_when: not settings_tz_file.stat.exists
+      when: coin_dojo_image | default(false) | bool
+
+    - name: Time zone in an image build (/etc/localtime -> the zone file)
+      ansible.builtin.file:
+        src: "/usr/share/zoneinfo/{{ settings_tz_wanted }}"
+        dest: /etc/localtime
+        state: link
+        force: true
+      become: true
+      when: coin_dojo_image | default(false) | bool
+
+    - name: Time zone the cabinet has now
+      ansible.builtin.command:
+        argv: [timedatectl, show, -p, Timezone, --value]
+      register: settings_tz_now
+      changed_when: false
+      check_mode: false
+      when: not coin_dojo_image | default(false) | bool
+
+    - name: Time zone set (timedatectl set-timezone, only when it differs)
+      ansible.builtin.command:
+        argv: [timedatectl, set-timezone, --, "{{ settings_tz_wanted }}"]
+      become: true
+      changed_when: true   # it only runs when the zone differs
+      when: not coin_dojo_image | default(false) | bool and settings_tz_now.stdout | trim != settings_tz_wanted
+
+    - name: Dry run - the time zone would change
+      ansible.builtin.debug:
+        msg: "time zone {{ settings_tz_now.stdout | trim }} -> {{ settings_tz_wanted }}"
+      when: ansible_check_mode and not coin_dojo_image | default(false) | bool and settings_tz_now.stdout | trim != settings_tz_wanted
+
+    # #195: SETTINGS on the carousel opens the app directly (ES-DE game-select script; the es_settings keys it needs
+    # are role cabinet_tweaks'). The script does nothing until the entry file exists.
+    - name: ES-DE script dirs (scripts/, scripts/game-select/, scripts/game-end/)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ settings_user }}"
+        group: "{{ settings_group }}"
+        mode: "0755"
+      loop: ["{{ settings_hook_file | dirname | dirname }}", "{{ settings_hook_file | dirname }}",
+             "{{ settings_hook_end_file | dirname }}"]
+      become: true
+
+    - name: ES-DE game-select + game-end script - entering SETTINGS opens the app (no one-entry list)
+      ansible.builtin.template:
+        src: esde-settings-hook.sh.j2
+        dest: "{{ item }}"
+        owner: "{{ settings_user }}"
+        group: "{{ settings_group }}"
+        mode: "0755"
+      loop: ["{{ settings_hook_file }}", "{{ settings_hook_end_file }}"]
+      become: true
+      ignore_errors: "{{ ansible_check_mode }}"   # first-install dry run: the dirs it only pretends to create
+
+    # ---- standalone carousel entry (test VM only) ---------------------------------------------------------------
+    - name: Standalone SETTINGS system (no nested build on this host)
+      when: settings_standalone_carousel
+      block:
+        - name: Existing custom es_systems.xml
+          ansible.builtin.slurp:
+            src: "{{ settings_esde_home }}/custom_systems/es_systems.xml"
+          register: settings_es_old
+          failed_when: false
+
+        - name: Never replace an es_systems.xml we did not write
+          ansible.builtin.assert:
+            that: settings_es_old.content is not defined or
+                  'coin-dojo-settings-standalone' in (settings_es_old.content | b64decode)
+            fail_msg: "{{ settings_esde_home }}/custom_systems/es_systems.xml exists and is not ours (the nested build?):
+                       not touched. Use the nested build's --settings-entry instead."
+            quiet: true
+
+        - name: custom_systems/es_systems.xml with just SETTINGS
+          ansible.builtin.template:
+            src: es_systems_standalone.xml.j2
+            dest: "{{ settings_esde_home }}/custom_systems/es_systems.xml"
+            owner: "{{ settings_user }}"
+            group: "{{ settings_group }}"
+            mode: "0644"
+          become: true
+
+        - name: Carousel dirs
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: directory
+            owner: "{{ settings_user }}"
+            group: "{{ settings_group }}"
+            mode: "0755"
+          loop: ["{{ settings_carousel_root }}/settings", "{{ settings_esde_home }}/gamelists/settings"]
+          become: true
+
+        - name: The one entry (link to the entry file, as the nested build makes it)
+          ansible.builtin.file:
+            src: "{{ settings_entry }}"
+            dest: "{{ settings_carousel_root }}/settings/Settings.hks"
+            state: link
+            owner: "{{ settings_user }}"
+            group: "{{ settings_group }}"
+            force: true
+          become: true
+
+        - name: gamelists/settings/gamelist.xml (= the nested build's; nogamecount keeps it out of LAST PLAYED)
+          ansible.builtin.copy:
+            src: settings_gamelist.xml
+            dest: "{{ settings_esde_home }}/gamelists/settings/gamelist.xml"
+            owner: "{{ settings_user }}"
+            group: "{{ settings_group }}"
+            mode: "0644"
+          become: true
+
+  always:
+    - name: Remove the staging dir
+      ansible.builtin.file:
+        path: "{{ settings_stage.path }}"
+        state: absent
+      changed_when: false
+      check_mode: false
+
+# ---- report ---------------------------------------------------------------------------------------------------
+- name: Does ES-DE's es_systems.xml have the SETTINGS system yet?
+  ansible.builtin.command:
+    argv: [grep, -c, "<name>settings</name>", "{{ settings_esde_home }}/custom_systems/es_systems.xml"]
+  register: settings_in_es
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Carousel entry
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'SETTINGS is on the carousel (es_systems.xml has it).' if (settings_in_es.stdout | default('0')) | int > 0 else
+         'SETTINGS is NOT on the carousel yet: run `make deploy-esde BECOME=1 APPLY=1` (the nested build adds it now that '
+         ~ settings_entry ~ ' exists).' }}

@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>./pacman.zip</path>
+		<name>Pac-Man</name>
+		<releasedate>19800101T000000</releasedate>
+		<genre>Maze</genre>
+	</game>
+	<game>
+		<path>./galaga.zip</path>
+		<name>Galaga</name>
+		<releasedate>19810101T000000</releasedate>
+		<genre>Shooter</genre>
+	</game>
+	<game>
+		<path>./1943.zip</path>
+		<name>1943: The Battle of Midway</name>
+		<releasedate>19870101T000000</releasedate>
+		<genre>Shoot'em Up</genre>
+	</game>
+	<game>
+		<path>./dkong.zip</path>
+		<name>Donkey Kong</name>
+		<releasedate>19810101T000000</releasedate>
+		<genre>Platform</genre>
+	</game>
+</gameList>

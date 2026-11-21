@@ -1,0 +1,27 @@
+# N64 per-game controls in panel language (coin-dojo, 2026-11-14). For #57 cards (Lena) + #64 remaps.
+# Default N64 panel remap (live: remaps/Mupen64Plus-Next/Mupen64Plus-Next.rmp):
+#   Jab=B  Strong=C-Up  Fierce=R  /  Short=A  Forward=Z  Roundhouse=C-Down ; stick = analog + D-pad ; Start=Start
+# Columns: rom stem, layout (n64 = default works, n64-remap = needs its own remap, #64), then what each panel button
+# DOES in that game: Jab Strong Fierce Short Forward Roundhouse ("" = unused), confidence (played = the maintainer tested;
+# known = standard game controls from memory, not tested on cabinet; guess = verify), note.
+# Labels are action words for humans (max ~12 chars); never console button names.
+stem	layout	Jab	Strong	Fierce	Short	Forward	Roundhouse	confidence	note
+Super Smash Bros.	n64	Special	Jump	Shield	Attack	Grab/Shield	Jump	known	Forward+Short = grab; stick up also jumps. Movement fixed + the maintainer played (buttons not confirmed yet)
+Kirby 64 - The Crystal Shards	n64	Inhale	Camera	Guard	Jump		Camera	guess	B inhale/spit, A jump (hold = float); combine powers by inhaling
+Yoshi's Story	n64	Tongue	Camera	Ground pound	Jump	Aim egg		guess	Z aims + throws eggs; A jump (hold = flutter)
+Goemon's Great Adventure	n64	Attack	Switch char	Sub-weapon	Jump	Sub-weapon	Switch char	guess	2D platformer
+Mischief Makers	n64	Grab/Shake	Dash		Jump		Dash	guess	B grab, shake with stick; C dashes; game prefers D-pad (stick also drives D-pad)
+Bakuretsu Muteki Bangaioh	n64	Missiles	Aim lock	Shield	Shoot		Aim lock	guess	Japanese release; verify all buttons
+Rakugakids	n64	Punch	Special	Guard	Kick		Special	guess	1v1 fighter; may want arcade-style remap (#64)
+Ready 2 Rumble Boxing	n64	Left jab	Left hook	Block	Right jab	Taunt	Right hook	guess	punches on A/B + C buttons; verify block = R
+Tsumi to Batsu - Hoshi no Keishousha	n64	Jump	Aim mode	Fire	Fire	Fire	Jump	guess	Sin and Punishment; shooter uses D-pad move + stick aim; likely needs #64 remap
+Tetrisphere	n64	Rotate	Camera	Speed up	Drop		Camera	guess	puzzle
+New Tetris, The	n64	Rotate L	Hold	Hold	Rotate R			guess	puzzle
+Magical Tetris Challenge	n64	Rotate L	Hold	Hold	Rotate R			guess	puzzle
+Pokemon Puzzle League	n64	Swap		Raise stack	Swap		Raise stack	guess	stick moves cursor
+Killer Instinct Gold	n64-remap	Quick P	Medium P	Fierce P	Quick K	Medium K	Fierce K	known	remaps/Mupen64Plus-Next/Killer Instinct Gold.rmp + core-options .opt (alt-map); C-arrow per attack inferred, check Button Setup
+Mace - The Dark Age	n64-remap	Quick	Strong	Evade	Kick	Jump	Special	guess	#64 remap; verify the game's 4 attacks + evade
+WWF No Mercy	n64-remap	Strike	Block/Counter	Turn/Weapon	Grapple	Reverse/Pin	Run	known	remaps/Mupen64Plus-Next/WWF No Mercy.rmp + game override (stick = d-pad move AND analog taunt/finisher); SELECT = C-Up climb ropes; tap/hold = weak/strong
+F-Zero X	n64-remap	Boost	Brake?	Side attack	Accelerate	Side attack	Brake?	guess	#64: accelerate/brake under the thumb, Z/R = side attack (double tap = spin)
+Robotron 64	n64-remap							known	twin-stick: remaps/Mupen64Plus-Next/Robotron 64.rmp, P2 stick = C buttons = fire (#59); card = twinstick
+Micro Machines 64 Turbo	n64	Brake		Change view	Accelerate	Use item	Horn	guess	solo only (the maintainer 2026-11-14: no 4-player); default panel, no remap

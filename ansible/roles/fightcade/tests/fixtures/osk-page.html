@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- #227 test harness: a login page we wrote ourselves with the same SHAPE as a two-panel login (left panel with a logo
+     box, right panel with a username + password form). It is NOT Fightcade's page and contains none of its code or
+     assets. The test fills in the three placeholders below: the role's keyboard CSS (rendered), files/inject.js, the driver script. -->
+<html><head><meta charset="utf-8"><title>osk harness</title>
+<style>
+html { background: #000; overflow: hidden; }
+body { position: fixed; top: 0; left: 0; width: 1440px; height: 1080px; margin: 0; overflow: hidden; transform: translateZ(0);
+       background: #2b1730; font: 20px sans-serif; color: #eee; }
+.left { position: absolute; left: 0; top: 0; width: 637px; height: 1080px; background: #231326; }
+.logo { position: absolute; left: 160px; top: 430px; width: 320px; height: 225px; border: 3px solid #36d6e7; box-sizing: border-box; text-align: center; padding-top: 90px; }
+.right { position: absolute; left: 637px; top: 0; width: 803px; height: 1080px; }
+form { position: absolute; left: 90px; top: 300px; width: 600px; }
+input { display: block; width: 100%; margin: 20px 0; font-size: 22px; padding: 6px; background: #1c1020; color: #fff; border: 0; border-bottom: 2px solid #36d6e7; }
+button { font-size: 22px; padding: 8px 24px; }
+</style>
+<style id="osk-css">@@CSS@@</style></head>
+<body>
+<div class="left"><div class="logo">LOGO BOX</div></div>
+<div class="right"><form id="f" action="#" onsubmit="return false">
+  <label>USERNAME</label><input id="user" type="text" autocomplete="off">
+  <label>PASSWORD</label><input id="pass" type="password" autocomplete="off">
+  <button type="submit" id="go">CONNECT</button></form></div>
+<script>/* a stand-in for node's fs (the real preload has it): an in-memory file table the test can read */
+window.__files = {}; window.__writes = 0;
+window.require = function (m) { if (m !== 'fs') { throw new Error('only fs'); }
+  return { readFileSync: function (p) { if (!(p in window.__files)) { throw new Error('ENOENT'); } return window.__files[p]; },
+           writeFileSync: function (p, d) { window.__files[p] = d; window.__writes++; },
+           chmodSync: function () {}, unlinkSync: function (p) { delete window.__files[p]; },
+           renameSync: function (a, b) { window.__files[b] = window.__files[a]; delete window.__files[a]; } }; };</script>
+<script>@@JS@@</script>
+<script>@@TEST@@</script>
+</body></html>

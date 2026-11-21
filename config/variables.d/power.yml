@@ -1,0 +1,30 @@
+# Area: power. The double-press power button: how long the confirm prompt waits, how long a hung process may delay
+# the shutdown, and powerd's CPU priority. (The cabinet user and its uid come from the host area.)
+area: power
+description: Power button confirm window, shutdown stop timeout and powerd priority.
+variables:
+  hk_power_prompt:
+    type: int
+    default: 8
+    min: 3
+    max: 30
+    description: >-
+      Seconds the "Shut down?" prompt waits for the second press before it cancels (also the countdown the prompt
+      shows).
+    consumers: [ansible/roles/power]
+  hk_power_stop_timeout:
+    type: str
+    default: 15s
+    pattern: "[0-9]+(s|min)"
+    description: >-
+      Longest a single process may take to stop during shutdown (systemd DefaultTimeoutStopSec and the user manager's
+      TimeoutStopSec). The distro default is 90 s. Keep it between 10 s and 30 s: shorter can cut a save in
+      progress, longer feels hung.
+    consumers: [ansible/roles/power]
+  hk_power_nice:
+    type: int
+    default: -5
+    min: -20
+    max: 19
+    description: Scheduler priority (nice) of the power daemon; negative keeps the button responsive while an emulator keeps the cores busy.
+    consumers: [ansible/roles/power]

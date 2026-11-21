@@ -1,0 +1,8 @@
+# sysctl --system re-reads every sysctl.d file in order, as at boot (so the result is what a reboot gives).
+- name: Apply sysctl
+  ansible.builtin.command:
+    argv: [sysctl, --system]
+  become: true
+  changed_when: true
+  # #244: never in an image build: /proc/sys there is the BUILD machine's kernel. The image reads sysctl.d at boot.
+  when: not coin_dojo_image | default(false) | bool

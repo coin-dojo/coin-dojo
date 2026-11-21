@@ -1,0 +1,7 @@
+# share (#266). Image build: nothing restarts; smbd starts with the new smb.conf at the first boot.
+- name: Restart smbd
+  ansible.builtin.systemd:
+    name: smbd.service
+    state: restarted
+  become: true
+  when: not coin_dojo_image | default(false) | bool

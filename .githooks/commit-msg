@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# commit-msg hook (#99): Conventional Commits with a ticket number. Installed by `make hooks`
+# (git config core.hooksPath .githooks; worktrees share it). Bypass only with --no-verify.
+exec python3 "$(git rev-parse --show-toplevel)/tools/commitlint.py" check "$1"

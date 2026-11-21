@@ -1,0 +1,33 @@
+# Area: shaders. The CRT look of the RetroArch systems (#102: RetroArch 1.22 loads shaders only from presets, so the
+# role writes the auto presets config/global.glslp and config/<core>/<core>.glslp). Shader files come from a pinned
+# upstream commit (sha256 checked), so these three levers choose among what the role pins; they cannot name a new file.
+area: shaders
+description: CRT scanline shader on or off, which preset, and the cores that stay sharp.
+variables:
+  hk_crt_enabled:
+    type: bool
+    default: true
+    description: >-
+      Apply the CRT shader to RetroArch systems. true: RetroArch's auto shader presets are on and the shader files and
+      presets are installed. false: the two RetroArch switches (auto_shaders_enable, video_shader_enable) are set to
+      false and nothing shader-related is installed (files already on the cabinet are left alone).
+    consumers: [ansible/roles/retroarch122]
+  hk_crt_preset:
+    type: enum
+    default: crt/crt-pi.glslp
+    allowed: [crt/crt-pi.glslp]
+    description: >-
+      The preset every RetroArch system gets (config/global.glslp points at it). crt-pi is the cheap scanline shader that
+      runs full speed on the Pi 5. Only presets the role pins (sha256) are allowed; another preset needs its files added
+      to retroarch122_shader_files first.
+    consumers: [ansible/roles/retroarch122]
+  hk_crt_off_cores:
+    type: list
+    items: enum
+    default: [Mupen64Plus-Next, PCSX-ReARMed]
+    allowed: [Beetle PCE, Beetle Saturn, FinalBurn Neo, Flycast, Genesis Plus GX, MAME, Mupen64Plus-Next, Nestopia, PCSX-ReARMed, Snes9x, Stella]
+    description: >-
+      Cores that get the plain pass-through instead of the CRT preset (upscaled 3D looks wrong under scanlines: the N64
+      and PSX cores render at 2x to 3x). Names are RetroArch's library_name, the same as the folders under
+      ~/.config/retroarch/config, remaps and core-options. `[]` puts scanlines on every core.
+    consumers: [ansible/roles/retroarch122]
