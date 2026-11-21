@@ -1,0 +1,350 @@
+/* coin-dojo (#227): the on-screen keyboard of the Fightcade lobby. Managed by the ansible role fightcade.
+   nativefier's preload.js loads resources/app/inject/inject.js on every page (DOMContentLoaded), in an isolated
+   world: the DOM is shared with the page, its JS is not. No network, no storage, no logging: what is typed is
+   never written anywhere but into the page's own field (not to a console, not to a request). The one file it writes is
+   the player's own macro list (SAVE on the MACROS page, never from a password field), see MACRO_FILE.
+
+   Input: coin-dojo-stickmouse (#211) owns whether the keyboard is open and sends the stick as DEDICATED keys through
+   its uinput device only while it is: F13 open, F14-F17 up/down/left/right, F18 = LK (type the key), F19 = MK (delete),
+   F23 = START (close), F24 = SELECT (close). They are matched by KeyboardEvent.code (the evdev keycode):
+   xkb's inet(evdev) rewrites the keysyms of F13-F18 and F20-F23 (only F19 and F24 keep their names), so the key value
+   is not reliable. START's Enter (#262) is not made here: right after F23 stickmouse sends a REAL Enter (KEY_ENTER,
+   what a USB keyboard sends) to the focused field, because pages ignore a script-made (untrusted) Enter. A real
+   Enter passes this script untouched, open or closed. Nothing else is touched, so a USB
+   keyboard and the lobby behave as before, and a stray one of these keys does nothing in the lobby or in FBNeo. This
+   script never closes itself except on a window blur (a game took the focus): the on-screen CLOSE and ENTER keys only
+   tell the player which button does it. A key that arrives while it is hidden reopens it (a reloaded page agrees with
+   stickmouse again). Only real key events count. */
+(function () {
+  'use strict';
+  if (window.__hkOsk) { return; }
+  var KEYS = { F13: 'open', F14: 'up', F15: 'down', F16: 'left', F17: 'right', F18: 'press', F19: 'delete', F23: 'submit', F24: 'cancel' };
+  var LAYERS = {
+    abc: [['1','2','3','4','5','6','7','8','9','0'],
+          ['q','w','e','r','t','y','u','i','o','p'],
+          ['a','s','d','f','g','h','j','k','l','-'],
+          ['z','x','c','v','b','n','m','.','_','@']],
+    ABC: [['1','2','3','4','5','6','7','8','9','0'],
+          ['Q','W','E','R','T','Y','U','I','O','P'],
+          ['A','S','D','F','G','H','J','K','L','-'],
+          ['Z','X','C','V','B','N','M','.','_','@']],
+    sym: [['!','"','#','$','%','&','\'','(',')','='],
+          ['+','*','/',':',';','<','>','?','[',']'],
+          ['{','}','\\','|','~','^','`',',','.','-'],
+          ['_','@','é','è','à','ç','ñ','ü','ö','ä']]
+  };
+  /* chat macros (hk_fightcade_chat_macros): one press types the whole line into the field; START (a real Enter) sends it */
+  var MACROS = {{ fightcade_chat_macros | to_json }};            // [{group, text}] from hk_fightcade_chat_macros
+  var MACRO_SENDS = {{ fightcade_chat_macros_send | to_json }};   // true: a macro also presses a script-made Enter (off, #227)
+  /* The player's own macros live in this file on the data partition: the deploy never writes it, a Fightcade update
+     never touches it (it is not in the Fightcade tree), and it is the only thing this script ever writes. */
+  var MACRO_FILE = {{ fightcade_macros_file | to_json }};
+  var MAX_USER = 20, MAX_LEN = 60;
+  /* bottom row: label, action, width in cells */
+  var BOTTOM = [['SHIFT', 'shift', 2], ['123', 'sym', 2], ['SPACE', 'space', 4], ['DEL', 'del', 2]];
+  var EXTRA = [['CLOSE', 'close', 3], ['MACROS', 'mac', 4], ['ENTER', 'enter', 3]];
+
+  var HINT = 'LK type   MK delete   START enter   SELECT close';
+  var root = null, keysEl = null, layer = 'abc', shifted = false, pos = { r: 0, c: 0 }, grid = [], target = null;
+
+  function visibleEditable(el) {
+    if (!el || el === document.body) { return false; }
+    var t = el.tagName;
+    if (t === 'TEXTAREA') { return true; }
+    if (t === 'INPUT') {
+      return /^(text|password|email|search|url|tel|number)?$/i.test(el.getAttribute('type') || '');
+    }
+    return !!el.isContentEditable;
+  }
+
+  function firstField() {
+    var all = document.querySelectorAll('input, textarea, [contenteditable="true"]');
+    for (var i = 0; i < all.length; i++) {
+      var r = all[i].getBoundingClientRect();
+      if (visibleEditable(all[i]) && r.width > 0 && r.height > 0) { return all[i]; }
+    }
+    return null;
+  }
+
+  function build() {
+    if (root) { return; }
+    root = document.createElement('div');
+    root.id = 'hk-osk';
+    root.setAttribute('aria-hidden', 'true');
+    keysEl = document.createElement('div');
+    keysEl.className = 'hk-osk-keys';
+    root.appendChild(keysEl);
+    var hint = document.createElement('div');
+    hint.className = 'hk-osk-hint';
+    hint.textContent = HINT;
+    root.appendChild(hint);
+    /* the keys are plain divs and a click on them never moves the focus out of the field */
+    root.addEventListener('mousedown', function (e) { e.preventDefault(); }, true);
+    (document.body || document.documentElement).appendChild(root);
+    render();
+  }
+
+  function rows() {
+    if (layer === 'mac') { return macroRows(); }
+    var out = LAYERS[layer].map(function (r) { return r.map(function (k) { return [k, 'char', 1]; }); });
+    var b = BOTTOM.map(function (k) { return k.slice(); });
+    b[0][0] = shifted ? 'SHIFT*' : 'SHIFT';
+    out.push(b);
+    out.push(EXTRA.map(function (k) { return k.slice(); }));
+    return out;
+  }
+
+  var sending = false, tab = 0, hintTimer = null, user = null, lastMacro = null;
+
+  function groups() {
+    var g = [], idx = {};
+    MACROS.forEach(function (m) {
+      if (!(m.group in idx)) { idx[m.group] = g.length; g.push({ name: m.group, lines: [] }); }
+      g[idx[m.group]].lines.push(m.text);
+    });
+    g.push({ name: 'MINE', lines: loadUser(), mine: true });
+    return g;
+  }
+
+  function macroRows() {
+    var g = groups(), out = [];
+    tab = Math.min(tab, g.length - 1);
+    out.push(g.map(function (x, i) { return [x.name, 'tab', 1, i]; }));
+    var lines = g[tab].lines;
+    if (!lines.length) { out.push([[g[tab].mine ? 'EMPTY: type a line, then SAVE' : 'EMPTY', 'none', 1]]); }
+    for (var i = 0; i < Math.min(lines.length, 12); i += 4) {
+      out.push(lines.slice(i, i + 4).map(function (t, j) { return [t, 'macro', 1, t]; }));
+    }
+    out.push([['KEYS', 'abc', 1], ['SAVE', 'save', 1], [g[tab].mine ? 'FORGET' : 'DEL', g[tab].mine ? 'forget' : 'del', 1],
+              ['ENTER', 'enter', 1], ['CLOSE', 'close', 1]]);
+    return out;
+  }
+
+  function loadUser() {
+    if (user) { return user; }
+    user = [];
+    try {
+      var d = JSON.parse(require('fs').readFileSync(MACRO_FILE, 'utf8'));
+      if (Array.isArray(d)) { user = d.filter(function (t) { return typeof t === 'string' && t.length > 0 && t.length <= MAX_LEN; }).slice(0, MAX_USER); }
+    } catch (e) { /* no file yet, or unreadable: an empty list; it is rewritten on the next SAVE */ }
+    return user;
+  }
+
+  function storeUser() {
+    try {
+      var fs = require('fs'), tmp = MACRO_FILE + '.tmp';
+      try { fs.unlinkSync(tmp); } catch (e) { /* none left over */ }   // a stale .tmp would keep its old mode
+      fs.writeFileSync(tmp, JSON.stringify(user) + '\n', { mode: 384 });
+      fs.chmodSync(tmp, 384);          // 0600 whatever the umask or an earlier file
+      fs.renameSync(tmp, MACRO_FILE);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function flash(msg) {
+    var h = root.querySelector('.hk-osk-hint');
+    h.textContent = msg;
+    h.classList.add('hk-osk-flash');
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(function () { h.textContent = HINT; h.classList.remove('hk-osk-flash'); }, 2500);
+  }
+
+  /* SAVE: the text now in the field becomes a user macro. Never from a password field, never control characters. */
+  function saveMacro() {
+    var t = field();
+    if (!t) { return flash('no field to save from'); }
+    if (t.tagName === 'INPUT' && (t.getAttribute('type') || '').toLowerCase() === 'password') { return flash('not saved: password field'); }
+    var text = String(t.value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+    if (!text) { return flash('nothing to save'); }
+    if (text.length > MAX_LEN) { return flash('too long (max ' + MAX_LEN + ')'); }
+    loadUser();
+    if (user.indexOf(text) >= 0) { return flash('already saved'); }
+    if (user.length >= MAX_USER) { return flash('MINE is full (' + MAX_USER + ')'); }
+    user.push(text);
+    flash(storeUser() ? 'saved to MINE' : 'could not save');
+    tab = groups().length - 1;
+    render();
+  }
+
+  /* FORGET removes the MINE line the focus was last on (the focus itself sits on the FORGET key when it is pressed) */
+  function forgetMacro() {
+    var i = lastMacro === null ? -1 : loadUser().indexOf(lastMacro);
+    if (i < 0) { return flash('move onto a line of MINE first'); }
+    user.splice(i, 1);
+    lastMacro = null;
+    flash(storeUser() ? 'forgot it' : 'could not save');
+    render();
+  }
+
+  /* one cell = 1/10 of the width: a key spans `w` cells; vertical moves go to the key under the same x */
+  function render() {
+    grid = rows();
+    pos.r = Math.min(pos.r, grid.length - 1);
+    pos.c = Math.min(pos.c, grid[pos.r].length - 1);
+    keysEl.textContent = '';
+    grid.forEach(function (row, r) {
+      var rowEl = document.createElement('div');
+      rowEl.className = 'hk-osk-row';
+      var x = 0;
+      row.forEach(function (k, c) {
+        var el = document.createElement('div');
+        el.className = 'hk-osk-key' + (k[1] === 'char' ? '' : k[1] === 'macro' ? ' hk-osk-macro' : k[1] === 'tab' ? ' hk-osk-fn hk-osk-tab' : ' hk-osk-fn') + (k[1] === 'shift' && shifted || k[1] === 'tab' && k[3] === tab ? ' hk-osk-on' : '');
+        el.style.flex = String(k[2]) + ' 1 0';
+        el.textContent = k[0];
+        el.setAttribute('data-r', r);
+        el.setAttribute('data-c', c);
+        rowEl.appendChild(el);
+        k.x0 = x; k.x1 = x + k[2]; x += k[2];
+      });
+      keysEl.appendChild(rowEl);
+    });
+    paintFocus();
+  }
+
+  function paintFocus() {
+    var old = keysEl.querySelector('.hk-osk-focus');
+    if (old) { old.classList.remove('hk-osk-focus'); }
+    var cur = grid[pos.r] && grid[pos.r][pos.c];
+    if (cur && cur[1] === 'macro') { lastMacro = cur[3]; }
+    var el = keysEl.querySelector('[data-r="' + pos.r + '"][data-c="' + pos.c + '"]');
+    if (el) { el.classList.add('hk-osk-focus'); }
+  }
+
+  function move(dr, dc) {
+    if (dr) {
+      var cur = grid[pos.r][pos.c], mid = (cur.x0 + cur.x1) / 2;
+      var nr = Math.max(0, Math.min(grid.length - 1, pos.r + dr));
+      var row = grid[nr], best = 0;
+      for (var i = 0; i < row.length; i++) { if (row[i].x0 <= mid && mid < row[i].x1) { best = i; } }
+      pos = { r: nr, c: best };
+    } else {
+      pos = { r: pos.r, c: Math.max(0, Math.min(grid[pos.r].length - 1, pos.c + dc)) };
+    }
+    paintFocus();
+  }
+
+  function field() {
+    var a = document.activeElement;
+    if (visibleEditable(a)) { target = a; }
+    if (!target || !document.contains(target)) { target = firstField(); if (target) { target.focus(); } }
+    return target;
+  }
+
+  /* START (#262): the real Enter stickmouse sends right after F23 must land in the field, even when a click moved the
+     focus to a button meanwhile (a real Enter on a button clicks it) */
+  function refocus() {
+    var t = field();
+    if (t && document.activeElement !== t) { t.focus(); }
+  }
+
+  function insert(text) {
+    var t = field();
+    if (!t) { return; }
+    /* execCommand edits like a real keystroke (input events, undo, React sees it); the setter is the fallback */
+    if (document.execCommand && document.execCommand('insertText', false, text)) { return; }
+    var proto = t.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    var set = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (set && set.set) { set.set.call(t, (t.value || '') + text); }
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function del() {
+    var t = field();
+    if (!t) { return; }
+    if (document.execCommand && document.execCommand('delete', false, null)) { return; }
+    var set = Object.getOwnPropertyDescriptor(t.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value');
+    if (set && set.set) { set.set.call(t, (t.value || '').slice(0, -1)); }
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  /* Only for MACRO_SENDS (off by default, #227): a script-made Enter, which many pages ignore (untrusted, #262).
+     START never comes here: stickmouse sends a real Enter. The keyboard stays open, as stickmouse has it. */
+  function macroEnter() {
+    var t = field();
+    if (t) {
+      var ev = function (type) {
+        return new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true });
+      };
+      sending = true;                // our own Enter must not come back into the handler below
+      var go = t.dispatchEvent(ev('keydown'));
+      t.dispatchEvent(ev('keypress'));
+      t.dispatchEvent(ev('keyup'));
+      sending = false;
+      /* a page that handles Enter itself calls preventDefault; otherwise a plain form needs its submit */
+      if (go && t.form && t.tagName === 'INPUT' && t.form.requestSubmit) { t.form.requestSubmit(); }
+    }
+  }
+
+  function press() {
+    var k = grid[pos.r][pos.c];
+    switch (k[1]) {
+      case 'macro': insert(k[3]); if (MACRO_SENDS) { macroEnter(); } break;
+      case 'tab': tab = k[3]; render(); pos = { r: 0, c: k[3] }; paintFocus(); break;
+      case 'save': saveMacro(); break;
+      case 'forget': forgetMacro(); break;
+      case 'none': break;
+      case 'abc': layer = shifted ? 'ABC' : 'abc'; render(); break;
+      case 'mac': layer = 'mac'; pos = { r: 1, c: 0 }; render(); break;
+      case 'char': insert(k[0]); if (shifted) { shifted = false; layer = 'abc'; render(); } break;
+      case 'space': insert(' '); break;
+      case 'del': del(); break;
+      case 'shift': shifted = !shifted; layer = shifted ? 'ABC' : 'abc'; render(); break;
+      case 'sym': layer = layer === 'sym' ? (shifted ? 'ABC' : 'abc') : 'sym'; render(); break;
+      case 'enter': flash('press START to send'); break;     // stickmouse owns open/closed: the buttons do it
+      case 'close': flash('press SELECT to close'); break;
+    }
+  }
+
+  function show() {
+    build();
+    if (root.classList.contains('hk-osk-open')) { return; }
+    layer = 'abc'; shifted = false; pos = { r: 1, c: 0 };
+    render();
+    /* the login screen has the empty left panel; any other page gets the bottom-centre dock (see inject.css) */
+    var pw = document.querySelector('input[type="password"]');
+    root.classList.toggle('hk-osk-login', !!(pw && pw.getBoundingClientRect().width > 0));
+    field();
+    root.classList.add('hk-osk-open');
+    root.setAttribute('aria-hidden', 'false');
+  }
+
+  function hide() {
+    if (!root) { return; }
+    root.classList.remove('hk-osk-open');
+    root.setAttribute('aria-hidden', 'true');
+  }
+
+  function isOpen() { return !!root && root.classList.contains('hk-osk-open'); }
+
+  /* the one key handler: capture phase, so the keys never reach the page. Only the nine dedicated keys, only real ones. */
+  function onKey(e) {
+    if (sending) { return; }
+    var a = KEYS[e.code];
+    if (!a) { return; }              // any other key: not touched, delayed or remembered
+    if (!e.isTrusted) { return; }
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (e.type !== 'keydown' || e.repeat && a === 'open') { return; }
+    if (!isOpen()) {
+      /* stickmouse says open and we are hidden (a reload, a blur): agree again. A close that arrives now is a no-op. */
+      if (a !== 'submit' && a !== 'cancel') { show(); }
+      return;
+    }
+    switch (a) {
+      case 'up': move(-1, 0); break;
+      case 'down': move(1, 0); break;
+      case 'left': move(0, -1); break;
+      case 'right': move(0, 1); break;
+      case 'press': press(); break;
+      case 'delete': del(); break;
+      /* START: put the focus back on the field (never blur it) and hide; stickmouse's real Enter follows (#262) */
+      case 'submit': refocus(); hide(); break;
+      case 'cancel': hide(); break;
+    }
+  }
+  window.addEventListener('keydown', onKey, true);
+  window.addEventListener('keyup', onKey, true);
+  window.addEventListener('keypress', onKey, true);
+  window.addEventListener('blur', function () { hide(); });   // a game took the focus: stickmouse closed it without a key
+
+  window.__hkOsk = { open: show, close: hide, isOpen: isOpen };
+}());

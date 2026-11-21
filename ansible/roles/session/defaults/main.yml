@@ -1,0 +1,74 @@
+# session (#209, part C of #204): the cabinet's screen session loop, its cleanup and stop hook, the tty1
+# .bash_profile switch (lockout-guarded), the removal of the old /data/launcher USE_LAUNCHER leftovers, and the
+# permanent vm.swappiness. Play `pios` (site.yml) and the test VM (vm.yml).
+#
+#   make deploy TAGS=session BECOME=1 [APPLY=1]           cabinet (dry run unless APPLY=1)
+#   make deploy LIMIT=coin-dojo-vm TAGS=session [APPLY=1]  test VM (the profile line is inert there; hk-session
+#                                                         start /usr/local/bin/coin-dojo-session runs the loop)
+#
+# Nothing here restarts ES-DE or the session: the new loop starts at the next login on tty1 (reboot).
+# Rollback: hk_session_enable: false + deploy puts the plain es-de line back (also a reboot).
+#
+# --- levers (config/variables.d/session.yml, storage.yml) -----------------------------------------
+session_enable: "{{ hk_session_enable }}"
+session_countdown: "{{ hk_session_countdown }}"
+session_vm_swappiness: "{{ hk_vm_swappiness }}"
+session_user: "{{ hk_cabinet_user }}"
+session_group: "{{ hk_cabinet_group }}"
+session_home: "{{ hk_cabinet_home }}"
+
+# --- internal (not levers) ---------------------------------------------------------------------
+session_bin: /usr/local/bin/coin-dojo-session                 # internal
+session_cleanup_bin: /usr/local/bin/coin-dojo-cleanup         # internal
+session_stop_bin: /usr/local/bin/coin-dojo-session-stop       # internal
+session_conf: /usr/local/etc/coin-dojo-session.conf           # internal: sourced by the three scripts
+session_run_dir: "{{ coin_dojo_run_dir }}"                    # internal: group_vars/all.yml
+session_log: "{{ hk_cabinet_home }}/.cache/coin-dojo/session.log"   # internal
+session_bootmenu_py: python3                                 # internal
+session_bootmenu_app: "{{ hk_tools_dir }}/settings/bootmenu_app.py"   # internal: settings_dir, installed by the settings role (#210)
+# ES-DE exactly as the tty1 line ran it before #209 (1440x1080 picture in the bezel opening of the 1920x1080 panel).
+session_esde_argv: [/usr/local/bin/es-de, --resolution, "1440", "1080", --fullscreen-padding, "1"]   # internal
+session_fightcade_bin: /usr/local/bin/coin-dojo-fightcade     # internal: built by #208; missing = ES-DE
+session_fightcade_unit: coin-dojo-fightcade.scope             # internal: #208 runs it with systemd-run --user --scope --unit=coin-dojo-fightcade
+session_wineserver: [/usr/local/lib/coin-dojo-fightcade/wineserver]   # internal: #208 fightcade_libexec wrapper (Box64 + Wine's x86_64 wineserver)
+# coin-dojo-cleanup: process names (pgrep -x, at most 15 characters) and command-line patterns (pgrep -f) that must
+# not survive a mode. Never powerd, trophiesd or the session itself.
+session_cleanup_names: [retroarch, flycast, es-de, AppRun, electron, wineserver, wine, wine64, box64, fcade]   # internal
+# Patterns are anchored at the start of the command line, so an editor or a shell of the same user that only names
+# such a file (`vim settings_app.py`, `less x.exe` over ssh) is never killed. Wine shows its processes as Windows
+# paths (`C:\windows\system32\services.exe`); the rest of Fightcade mode also dies with its scope.
+session_cleanup_patterns:   # internal
+  - "^[^ ]*retroarch-1.22/retroarc[h]( |$)"
+  - "^[^ ]*python3[^ ]* [^ ]*settings_app[.]py"
+  - "^[^ ]*python3[^ ]* [^ ]*trophies_app[.]py"
+  - "^[^ ]*python3[^ ]* [^ ]*bootmenu_app[.]py"
+  - "^[^ ]*python3[^ ]* [^ ]*hk_fc_firstrun[.]py"   # #267 the Fightcade first-launch screen ...
+  - "^[^ ]*python3[^ ]* [^ ]*hk-fightcade-fetc[h]"  # ... and its download engine (a TERMed screen stops it first)
+  - "^[^ ]*/wine(64)?-preloade[r]( |$)"
+  - "^[A-Za-z]:.*[.]exe( |$)"
+session_kill_grace: 3        # internal: seconds between TERM and KILL in coin-dojo-cleanup (#204 v1: ~3 s)
+session_stop_grace: 5        # internal: seconds a mode gets after TERM (stop hook, poweroff) before KILL
+session_backoff_n: 3         # internal: failures of one mode ...
+session_backoff_window: 60   # internal: ... in this many seconds = no automatic restart (#204 v2)
+session_backoff_sleep: 30    # internal: wait when the menu is unusable during a back-off
+
+# .bash_profile: ONLY the `exec cage -d -- <es-de> ...` line changes. The regexp matches the plain line and the
+# guarded one (so a re-run and the rollback are idempotent); \2 keeps the es-de flags the line has.
+# Lockout guard in the line itself: the session must be executable, pass `bash -n` and `--check`, else plain ES-DE.
+session_profile: "{{ hk_cabinet_home }}/.bash_profile"       # internal
+session_profile_regexp: >-
+  ^(\s*)(?:\[ -x \S+ \] && bash -n \S+ && \S+ --check >/dev/null && exec cage -d -- \S+; )?exec cage -d -- ({{ session_esde_argv[0] | regex_escape }}(?: [^#;]*?)?)\s*(?:#[^;]*)?$
+session_profile_line: >-
+  \1[ -x {{ session_bin }} ] && bash -n {{ session_bin }} && {{ session_bin }} --check >/dev/null && exec cage -d -- {{ session_bin }}; exec cage -d -- \2  # coin-dojo-session (#209), plain ES-DE when its check fails
+session_profile_plain_line: '\1exec cage -d -- \2'           # internal: hk_session_enable false (rollback)
+
+# Old launcher leftovers in power_dir (/data/launcher is LIVE: powerd, overlay.py, fonts, shutdown.html stay).
+session_old_launcher_dir: /data/launcher                     # internal: power_dir
+# The dead tty1 line that ran the old launcher (cabinet line 10, read 2026-11-18): removed, with a profile backup.
+session_profile_launcher_regexp: '^\s*if \[ -f /data/launcher/USE_LAUNCHER \]; then exec cage .*; fi\s*$'   # internal
+session_old_launcher_items: [USE_LAUNCHER, coin-dojo-session.sh, games.json, cog.log, fetch_art.py, fetch.log, art]   # internal
+session_backup_root: "{{ hk_cabinet_home }}/ES-DE/themes/_backups"   # internal: same root as the launcher role
+
+# 99-zz- sorts after the cabinet's 98-rpi.conf and 99-sysctl.conf (the last value wins). The first #209 draft used 90-.
+session_sysctl_file: /etc/sysctl.d/99-zz-coin-dojo.conf       # internal
+session_sysctl_old: /etc/sysctl.d/90-coin-dojo.conf           # internal: removed when present

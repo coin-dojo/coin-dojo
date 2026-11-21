@@ -1,0 +1,30 @@
+# Managed by Ansible (role power, ticket #44). Double-press power button confirm.
+# Runs as the cabinet user, NOT root: it only needs the input device (group input) and coindojo's Wayland
+# socket for the overlay; poweroff goes through the one-line sudoers rule. No NoNewPrivileges= on purpose,
+# it would break that sudo call.
+[Unit]
+Description=Coin Dojo power button confirm (powerd)
+After=systemd-udevd.service local-fs.target
+# Keep retrying forever if the input device is late; never give up after N quick failures.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User={{ cabinet_user }}
+Group={{ cabinet_group }}
+Environment=PYTHONUNBUFFERED=1
+Environment=POWERD_DEVICE={{ power_device }}
+Environment=XDG_RUNTIME_DIR=/run/user/{{ power_uid }}
+Environment=WAYLAND_DISPLAY={{ power_wayland_display }}
+# #66: stay responsive while an emulator keeps the CPU busy (systemd sets it before dropping to User=).
+Nice={{ power_nice }}
+{% if power_prompt | int != 8 %}
+# hk_power_prompt: seconds the confirm prompt waits (powerd's built-in default is 8).
+Environment=POWERD_WINDOW={{ power_prompt }}
+{% endif %}
+ExecStart=/usr/bin/python3 {{ power_dir }}/powerd.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

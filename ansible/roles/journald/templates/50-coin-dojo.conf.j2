@@ -1,0 +1,9 @@
+# Managed by coin-dojo Ansible (role journald). Local edits are overwritten.
+# Persistent journal so the previous boot's logs survive a reboot (journalctl -b -1).
+# Overrides /usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf (Storage=volatile).
+# SD card: the size is capped and a free-space floor is kept.
+[Journal]
+Storage=persistent
+SystemMaxUse={{ journald_system_max_use }}
+SystemKeepFree={{ journald_system_keep_free }}
+MaxRetentionSec={{ journald_max_retention }}

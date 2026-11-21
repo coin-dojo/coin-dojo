@@ -1,0 +1,17 @@
+--- a/gfx/drivers_context/wayland_ctx.c
++++ b/gfx/drivers_context/wayland_ctx.c
+@@ -230,6 +230,14 @@ static bool gfx_ctx_wl_egl_init_context(gfx_ctx_wayland_data_t *wl)
+          break;
+    }
+ 
++#if defined(HAVE_OPENGLES3) && defined(EGL_KHR_create_context)
++   /* coin-dojo: a --enable-opengles3 build has no HAVE_OPENGLES2, so a GLES2 request (every software
++    * core) left attrib_ptr NULL and egl_init_context dereferenced it (segfault). An ES3 config also
++    * serves ES2 contexts. */
++   if (!attrib_ptr && wl_api == GFX_CTX_OPENGL_ES_API)
++      attrib_ptr = egl_attribs_gles3;
++#endif
++
+    if (!egl_init_context(&wl->egl,
+             EGL_PLATFORM_WAYLAND_KHR,
+             (EGLNativeDisplayType)wl->input.dpy,

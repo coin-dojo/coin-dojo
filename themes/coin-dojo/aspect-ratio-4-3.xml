@@ -1,0 +1,47 @@
+<!--
+    4:3 is the PRIMARY target (1440x1080 pillarboxed). theme.xml already
+    carries the full 4:3 geometry; this file adds font-size tuning so the
+    "medium" / "large" fontSize options do something. The variables are used
+    only within this file (aspect files parse after general config).
+-->
+<theme>
+    <fontSize name="medium">
+        <variables>
+            <carouselFont>0.075</carouselFont>
+            <listFont>0.028</listFont>
+            <descFont>0.0185</descFont>
+            <metaFont>0.0165</metaFont>
+        </variables>
+    </fontSize>
+    <fontSize name="large">
+        <variables>
+            <carouselFont>0.086</carouselFont>
+            <listFont>0.0325</listFont>
+            <descFont>0.021</descFont>
+            <metaFont>0.019</metaFont>
+        </variables>
+    </fontSize>
+
+    <variant name="all">
+        <view name="system">
+            <carousel name="systemCarousel">
+                <fontSize>${carouselFont}</fontSize>
+            </carousel>
+        </view>
+        <view name="gamelist">
+            <textlist name="gamelistTextlist">
+                <fontSize>${listFont}</fontSize>
+            </textlist>
+            <text name="description">
+                <fontSize>${descFont}</fontSize>
+            </text>
+            <text name="genre, players, developer,
+                        labelGenre, labelPlayers, labelDeveloper, labelReleased">
+                <fontSize>${metaFont}</fontSize>
+            </text>
+            <datetime name="releasedate">
+                <fontSize>${metaFont}</fontSize>
+            </datetime>
+        </view>
+    </variant>
+</theme>

@@ -1,0 +1,44 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Shut Down</title>
+<style>
+@font-face{font-family:'PX';src:url('fonts/PressStart2P-Regular.ttf');}
+@font-face{font-family:'Disp';src:url('fonts/ArchivoBlack-Regular.ttf');}
+@font-face{font-family:'UI';src:url('fonts/Rajdhani-SemiBold.ttf');}
+:root{--indigo:#0A1038;--cyan:#36D6E7;--amber:#F5A623;--ink:#EAF0FF;--muted:#9FB0D8;--red:#e23b3b;}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(60% 60% at 50% 45%,rgba(10,16,56,.82),rgba(4,5,16,.93));
+  font-family:'UI',system-ui,sans-serif}
+.scan{position:fixed;inset:0;pointer-events:none;opacity:.07;
+  background:repeating-linear-gradient(0deg,#fff 0 1px,transparent 1px 3px)}
+.card{position:relative;background:linear-gradient(160deg,#101a4a,#0A1038 60%,#1a0a16);
+  border:3px solid var(--cyan);border-radius:14px;padding:46px 64px 40px;text-align:center;
+  box-shadow:0 0 0 2px #060a22,0 24px 70px rgba(0,0,0,.6),0 0 60px -10px rgba(54,214,231,.4);min-width:620px}
+.edge{position:absolute;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,var(--amber),var(--red))}
+h1{font-family:'Disp',sans-serif;font-style:italic;font-size:54px;margin:0 0 6px;letter-spacing:-1px;
+  background:linear-gradient(180deg,#ff4d0a 0%,#ffcf6a 34%,#fff 52%,#bbe0fb 72%,#157ac8 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;
+  filter:drop-shadow(3px 3px 0 rgba(0,0,0,.55))}
+.sub{font-family:'PX',monospace;font-size:12px;color:var(--cyan);letter-spacing:1px;line-height:1.9;margin:10px 0 26px}
+.pill{display:inline-block;font-family:'PX',monospace;font-size:11px;color:#07101f;background:var(--amber);
+  padding:7px 12px;border-radius:7px;margin:0 3px;box-shadow:0 3px 0 #a66c10;vertical-align:middle}
+.count{font-family:'PX',monospace;font-size:13px;color:var(--muted);letter-spacing:2px;margin-top:6px}
+.count b{color:var(--amber);font-size:22px}
+.bar{height:10px;width:100%;background:#070c22;border:2px solid #223066;border-radius:6px;margin-top:16px;overflow:hidden}
+.fill{height:100%;width:100%;background:linear-gradient(90deg,var(--amber),var(--red));transition:width 1s linear}
+.hint{font-family:'PX',monospace;font-size:8px;color:var(--muted);opacity:.7;margin-top:22px;letter-spacing:1px}
+</style></head>
+<body><div class="scan"></div>
+<div class="card">
+  <div class="edge"></div>
+  <h1>SHUT DOWN?</h1>
+  <div class="sub">PRESS <span class="pill">&#9211; POWER</span> AGAIN TO CONFIRM</div>
+  <div class="count">CANCELS IN <b id="n">8</b></div>
+  <div class="bar"><div class="fill" id="fill"></div></div>
+  <div class="hint">OR WAIT &mdash; THE CABINET STAYS ON</div>
+</div>
+<script>
+var t=+((location.search.match(/[?&]s=(\d+)/)||[0,8])[1]),T=t,n=document.getElementById('n'),fill=document.getElementById('fill');
+setInterval(function(){t--;if(t<0)t=0;n.textContent=t;fill.style.width=(t/T*100)+'%';},1000);
+</script>
+</body></html>

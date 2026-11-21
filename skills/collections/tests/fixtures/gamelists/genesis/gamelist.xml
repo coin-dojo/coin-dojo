@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>./sor2.zip</path>
+		<name>Streets of Rage 2</name>
+		<releasedate>19920101T000000</releasedate>
+		<genre>Beat'em Up</genre>
+	</game>
+	<game>
+		<path>./sonic.zip</path>
+		<name>Sonic the Hedgehog</name>
+		<releasedate>19910101T000000</releasedate>
+		<genre>Platform</genre>
+	</game>
+	<game>
+		<path>./columns.zip</path>
+		<name>Columns</name>
+		<releasedate>19900101T000000</releasedate>
+		<genre>Puzzle</genre>
+	</game>
+	<game>
+		<path>./quiz.zip</path>
+		<name>Quiz Game</name>
+		<releasedate>19910101T000000</releasedate>
+		<genre>Quiz</genre>
+	</game>
+	<game>
+		<path>./noyear.zip</path>
+		<name>Mystery Sports</name>
+		<genre>Sports</genre>
+	</game>
+</gameList>

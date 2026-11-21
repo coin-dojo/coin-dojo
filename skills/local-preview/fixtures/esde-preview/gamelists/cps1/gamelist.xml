@@ -1,0 +1,123 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>./skyace41.zip</path>
+		<name>Sky Ace '41</name>
+		<releasedate>19900201T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Shoot'em Up / Vertical</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./raptorrd.zip</path>
+		<name>Raptor Road</name>
+		<releasedate>19930101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Beat'em Up</genre>
+		<players>1-3</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./cptcomet.zip</path>
+		<name>Captain Comet</name>
+		<releasedate>19910928T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Beat'em Up</genre>
+		<players>1-4</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./lastrnd.zip</path>
+		<name>Last Round</name>
+		<releasedate>19891201T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Beat'em Up</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./graveknt.zip</path>
+		<name>Grave Knight</name>
+		<releasedate>19880101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Platform / Fighter Scrolling</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./tropfire.zip</path>
+		<name>Tropic Fire</name>
+		<releasedate>19900302T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Shooter / Run and Gun</genre>
+		<players>1-3</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./avefight2c.zip</path>
+		<name>Avenue Clash II: Champion Cut</name>
+		<releasedate>19920101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Fighting</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./avefight2.zip</path>
+		<name>Avenue Clash II</name>
+		<releasedate>19910206T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Fighting / Versus</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./skyrunr.zip</path>
+		<name>Sky Runner</name>
+		<releasedate>19890101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Platform / Fighter Scrolling</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./dragkng.zip</path>
+		<name>Dragon Crown Quest</name>
+		<releasedate>19910101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Beat'em Up</genre>
+		<players>1-3</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./ironjust.zip</path>
+		<name>Iron Justice</name>
+		<releasedate>19930101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Beat'em Up</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./stormwar.zip</path>
+		<name>Storm Warlords</name>
+		<releasedate>19921031T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Beat'em Up</genre>
+		<players>1-3</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+</gameList>

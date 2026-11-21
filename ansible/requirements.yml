@@ -1,0 +1,13 @@
+# Ansible collections this layer uses, pinned exactly: the pinned container (Dockerfile, bin/ans) installs
+# them; a pin change rebuilds the image on next use. Bump deliberately.
+#
+# - community.general : community.general.ini_file is used to set key=value lines in
+#                       batocera.conf / retroarch.cfg idempotently (ansible.builtin.lineinfile
+#                       is the stdlib fallback the roles actually use so this stays optional).
+# - ansible.posix     : ansible.posix.synchronize (rsync) for pushing ROMs/BIOS/artwork; honors
+#                       --check by running rsync --dry-run.
+collections:
+  - name: community.general
+    version: "14.0.1"
+  - name: ansible.posix
+    version: "2.2.2"

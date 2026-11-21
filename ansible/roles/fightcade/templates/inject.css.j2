@@ -1,0 +1,69 @@
+/* coin-dojo (#208, #204): the Fightcade lobby inside the cabinet's bezel opening. Managed by the ansible role
+   fightcade; nativefier injects resources/app/inject/inject.css into every page. The window is maximized to the
+   {{ fightcade_panel.width }}x{{ fightcade_panel.height }} panel (cage); the page is drawn in a centred {{ fightcade_column.width }}x{{ fightcade_column.height }} column
+   (x={{ ((fightcade_panel.width - fightcade_column.width) / 2) | int }}..{{ ((fightcade_panel.width + fightcade_column.width) / 2) | int - 1 }}) on black. The transform makes body the containing block of the
+   app's position:fixed layers, so they stay in the column too; html's overflow stops body's from reaching the
+   viewport, so whatever is wider is clipped at the column edge. */
+html {
+  background: #000 !important;
+  overflow: hidden !important;
+}
+body {
+  position: fixed !important;
+  top: 0 !important;
+  left: {{ ((fightcade_panel.width - fightcade_column.width) / 2) | int }}px !important;
+  width: {{ fightcade_column.width }}px !important;
+  height: {{ fightcade_column.height }}px !important;
+  max-width: {{ fightcade_column.width }}px !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  transform: translateZ(0);
+}
+
+/* #227: the on-screen keyboard (inject.js). Hidden until SELECT+LK; colours are the brand tokens (brand/BRAND.md:
+   violet card, gold the one accent). Placed in the left panel under the Fightcade logo on the login screen (.hk-osk-login), bottom centre on every other page. */
+#hk-osk {
+  display: none;
+  position: fixed !important;
+  z-index: 2147483647;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  width: 560px;
+  box-sizing: border-box;
+  padding: 14px 14px 10px;
+  background: #{{ fightcade_brand.card.hex }};
+  border: 5px solid #{{ fightcade_brand.gold.hex }};
+  border-radius: 24px;
+  font-family: "Rajdhani", "Archivo Black", "DejaVu Sans", sans-serif;
+  font-weight: 700;
+  color: #{{ fightcade_brand.chrome.hex }};
+  user-select: none;
+}
+#hk-osk.hk-osk-open { display: block; }
+/* the login screen (a password field is on the page): the empty left panel under the Fightcade logo, 637 px wide */
+#hk-osk.hk-osk-login { left: 38px; top: 700px; bottom: auto; transform: none; }
+#hk-osk .hk-osk-row { display: flex; gap: 6px; margin-bottom: 6px; }
+#hk-osk .hk-osk-key {
+  box-sizing: border-box;
+  height: 44px;
+  line-height: 44px;
+  text-align: center;
+  font-size: 24px;
+  background: #{{ fightcade_brand.button.hex }};
+  border: 3px solid #{{ fightcade_brand.dim.hex }};
+  border-radius: 8px;
+}
+#hk-osk .hk-osk-key { min-width: 0; }
+#hk-osk .hk-osk-tab { font-size: 13px; letter-spacing: 0; padding: 0 2px; overflow: hidden; white-space: nowrap; }
+#hk-osk .hk-osk-fn { font-size: 17px; letter-spacing: 1px; color: #{{ fightcade_brand.muted.hex }}; }
+#hk-osk .hk-osk-on { color: #{{ fightcade_brand.on_gold.hex }}; background: #{{ fightcade_brand.gold_muted.hex }}; }
+#hk-osk .hk-osk-focus {
+  background: #{{ fightcade_brand.gold.hex }};
+  border-color: #{{ fightcade_brand.gold.hex }};
+  color: #{{ fightcade_brand.on_gold.hex }};
+}
+#hk-osk .hk-osk-hint { font-size: 15px; text-align: center; color: #{{ fightcade_brand.dimmed.hex }}; letter-spacing: 1px; }
+/* the MACROS page: a line key shows its text (one line, cut with an ellipsis); a flash message replaces the hint for 2.5 s */
+#hk-osk .hk-osk-macro { font-size: 19px; padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#hk-osk .hk-osk-flash { color: #{{ fightcade_brand.gold.hex }}; }

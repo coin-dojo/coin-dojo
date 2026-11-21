@@ -1,0 +1,8 @@
+PLAY [Deploy to the test cabinet] **********************************************
+
+TASK [Gathering Facts] *********************************************************
+ok: [cab-test]
+
+PLAY RECAP *********************************************************************
+cab-test                   : ok=1   changed=zero    unreachable=0    failed=0
+

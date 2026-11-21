@@ -1,0 +1,32 @@
+# Managed by Ansible (role settings, ticket #177). The TROPHIES overlay: tap LP on the main menu.
+# Runs as the cabinet user, NOT root: it reads the joysticks (group input), its cache and key file in that user's home,
+# and talks to coindojo's Wayland socket through the power role's overlay.py. It never writes outside its cache.
+[Unit]
+Description=Coin Dojo TROPHIES overlay on LP (trophiesd)
+After=systemd-udevd.service local-fs.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User={{ settings_user }}
+Group={{ settings_group }}
+Environment=PYTHONUNBUFFERED=1
+Environment=XDG_RUNTIME_DIR=/run/user/{{ trophiesd_uid }}
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=TROPHIESD_ENTRY={{ trophies_entry }}
+Environment=TROPHIESD_OVERLAY_DIR={{ trophiesd_overlay_dir }}
+Environment="TROPHIESD_GAME_PROCS={{ trophiesd_game_procs | join(',') }}"
+Environment="TROPHIESD_GAME_PATTERNS={{ trophiesd_game_patterns | join(',') }}"
+Nice={{ trophiesd_nice }}
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+# The cache (the role creates it: a missing path fails the start) and the Wayland socket's dir.
+ReadWritePaths={{ trophies_cache_dir }} /run/user/{{ trophiesd_uid }}
+PrivateTmp=true
+ExecStart=/usr/bin/python3 {{ settings_dir }}/trophiesd.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

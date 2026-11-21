@@ -1,0 +1,20 @@
+# No launcher swap while a game runs. Fails closed: without pgrep the play stops.
+- name: Look for a running game (pgrep -x names, pgrep -f patterns)
+  ansible.builtin.shell:
+    cmd: >-
+      command -v {{ launcher_pgrep | quote }} >/dev/null || { echo "NO PGREP: cannot tell whether a game runs"; exit 0; };
+      {% for p in launcher_game_procs %}{{ launcher_pgrep | quote }} -a -x {{ p | quote }};{% endfor %}
+      {% for p in launcher_game_patterns %}{{ launcher_pgrep | quote }} -a -f {{ p | quote }};{% endfor %} true
+  register: launcher_game_running
+  changed_when: false
+  check_mode: false
+
+- name: Refuse while a game is running (quit it with Select+Start, then re-run)
+  ansible.builtin.assert:
+    that: launcher_game_running.stdout | trim | length == 0
+    fail_msg: "ABORT: a game is running ({{ launcher_game_running.stdout_lines | join('; ') }}); launch.py not touched."
+    quiet: true
+
+- name: One backup stamp for this run
+  ansible.builtin.set_fact:
+    launcher_stamp: "{{ lookup('ansible.builtin.pipe', 'date +%Y%m%d-%H%M%S') }}"

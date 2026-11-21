@@ -1,0 +1,123 @@
+<?xml version="1.0"?>
+<gameList>
+	<game>
+		<path>./aeroxx.zip</path>
+		<name>Aero XX: Final Sortie</name>
+		<releasedate>19960101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Shoot'em Up</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./loopmstr.zip</path>
+		<name>Loop Pilot 1944</name>
+		<releasedate>20000620T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Shoot'em Up</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./mechwar.zip</path>
+		<name>Mech Warband</name>
+		<releasedate>19940916T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Beat'em Up</genre>
+		<players>1-3</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./nightprw.zip</path>
+		<name>Night Prowl</name>
+		<releasedate>19940712T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Fighting / Versus</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./crypttal.zip</path>
+		<name>Crypt Tales: Shadow Road</name>
+		<releasedate>19960619T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Beat'em Up</genre>
+		<players>1-4</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./megawing.zip</path>
+		<name>Mega Wing</name>
+		<releasedate>19990101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Shoot'em Up / Vertical</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./avefight2h.zip</path>
+		<name>Avenue Clash II: Hyper Cut</name>
+		<releasedate>20040101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Fighting</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./capeclash.zip</path>
+		<name>Cape Clash</name>
+		<releasedate>19950101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Fighting</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./capeclashx.zip</path>
+		<name>Cape Clash X</name>
+		<releasedate>19980101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Fighting</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./gearsky.zip</path>
+		<name>Gear Sky</name>
+		<releasedate>20010101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Shoot'em Up / Horizontal</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./avealpha2.zip</path>
+		<name>Avenue Alpha 2</name>
+		<releasedate>19960101T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Fighting</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+	<game>
+		<path>./avealpha3.zip</path>
+		<name>Avenue Alpha 3</name>
+		<releasedate>19980904T000000</releasedate>
+		<developer>Example Arcade</developer>
+		<publisher>Example Arcade</publisher>
+		<genre>Fighting</genre>
+		<players>1-2</players>
+		<desc>Synthetic description for the local preview fixture. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</desc>
+	</game>
+</gameList>

@@ -1,0 +1,7 @@
+# shellcheck for coin-dojo (make lint, #124). Follow sourced files.
+external-sources=true
+source-path=SCRIPTDIR
+source-path=.
+# SC2015 (A && B || C): the scripts use `check && ok "..." || bad "..."` where B is an echo/log helper that cannot
+# fail, so C never runs after a true A. House style (16 sites at the time of adoption, #124).
+disable=SC2015

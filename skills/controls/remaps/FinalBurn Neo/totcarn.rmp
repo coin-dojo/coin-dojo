@@ -1,0 +1,10 @@
+# Total Carnage twin stick (#59, NOT TESTED). FBNeo's generic twin-stick rule matches "Right Stick
+# Up/Down/Left/Right", so P1's fire directions are on P1's right analog, like Robotron. Same remap as
+# robotron.rmp (user 2 -> core port 1, P2 d-pad -> right analog up 23, down 22, left 21, right 20).
+# Grenade = Button 1 = Short (LK), unchanged. One player only while this file is in place.
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "0"
+input_player2_btn_up = "23"
+input_player2_btn_down = "22"
+input_player2_btn_left = "21"
+input_player2_btn_right = "20"

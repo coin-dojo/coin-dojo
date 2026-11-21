@@ -1,0 +1,113 @@
+# `restart es-de` (#89): notified by any task that changes something ES-DE reads (theme, gamelists,
+# custom_systems, roms_nested/media links, cabinet_tweaks' ES-DE keys). Handlers run once, at the end of the play
+# (or at esde_verify's flush_handlers), however many tasks notified them. Never in check mode.
+# The tasks below all listen to the one topic and run in this order.
+
+- name: Re-check the game guard before restarting ES-DE
+  ansible.builtin.shell:
+    cmd: >-
+      command -v {{ esde_pgrep | quote }} >/dev/null || { echo "NO PGREP: cannot tell whether a game runs"; exit 0; };
+      {% for p in esde_game_procs %}{{ esde_pgrep | quote }} -a -x {{ p | quote }};{% endfor %}
+      {% for p in esde_game_patterns %}{{ esde_pgrep | quote }} -a -f {{ p | quote }};{% endfor %}
+      grep -qsx fightcade {{ esde_session_cur | quote }} && {{ esde_session_live }} && echo "the session is in Fightcade mode ({{ esde_session_cur }})"; true
+  register: esde_restart_guard
+  changed_when: false
+  when: not ansible_check_mode
+  listen: restart es-de
+
+- name: Stop if a game started meanwhile (the deploy is written; restart ES-DE later with make esde-restart APPLY=1)
+  ansible.builtin.assert:
+    that: esde_restart_guard.stdout | trim | length == 0
+    fail_msg: "a game started during the deploy ({{ esde_restart_guard.stdout_lines | join('; ') }}): files are written, ES-DE NOT restarted. Quit the game, then: make esde-restart APPLY=1"
+    quiet: true
+  when: not ansible_check_mode
+  listen: restart es-de
+
+# #209: while the session loop shows the boot menu no ES-DE runs and the menu waits, so a kill + wait would time out.
+# Nothing to restart then: ES-DE starts with the new files when it is chosen.
+- name: Ask whether the session shows the boot menu
+  ansible.builtin.shell:
+    cmd: "grep -qsx menu {{ esde_session_cur | quote }} && {{ esde_session_live }} && echo menu; true"
+  register: esde_session_menu
+  changed_when: false
+  when: not ansible_check_mode
+  listen: restart es-de
+
+# #244: an image build has no running ES-DE either; it starts with the new files at the first boot.
+- name: Skip the restart while the boot menu shows (or in an image build)
+  ansible.builtin.set_fact:
+    esde_restart_skip: "{{ (esde_session_menu.stdout | default('') | trim) == 'menu' or coin_dojo_image | default(false) | bool }}"
+  listen: restart es-de
+
+- name: No ES-DE restart (the boot menu shows; ES-DE starts with the new files when chosen)
+  ansible.builtin.debug:
+    msg: "the session shows the boot menu: ES-DE is not running, nothing to restart"
+  when: esde_restart_skip | bool
+  listen: restart es-de
+
+- name: Restart ES-DE (next-mode=esde for the session loop, then kill -9 so it cannot save its old state over the deploy)
+  ansible.builtin.shell:
+    cmd: "{{ esde_request_cmd }}; {{ esde_kill_cmd }}; true"
+  when: not ansible_check_mode and not esde_restart_skip | bool
+  listen: restart es-de
+
+- name: Remember the restart (esde_verify scans the log strictly only after one)
+  ansible.builtin.set_fact:
+    esde_restarted: true
+  when: not ansible_check_mode and not esde_restart_skip | bool
+  listen: restart es-de
+
+- name: Let the old session go
+  ansible.builtin.command:
+    cmd: "sleep {{ esde_restart_settle }}"
+  changed_when: false
+  when: not ansible_check_mode and not esde_restart_skip | bool
+  listen: restart es-de
+
+- name: Wait for ES-DE to come back
+  ansible.builtin.shell:
+    cmd: "{{ esde_up_cmd }}"
+  register: esde_up
+  until: esde_up.rc == 0
+  retries: "{{ esde_restart_retries }}"
+  delay: "{{ esde_restart_delay }}"
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode and not esde_restart_skip | bool
+  listen: restart es-de
+
+# A crash loop can trip the getty@tty1 start limit (runbooks/cabinet-recovery.md 3c): then tty1 never
+# logs in again and ES-DE stays down. Reset and restart it (needs sudo: BECOME=1).
+- name: Check the tty1 autologin (getty@tty1)
+  ansible.builtin.command:
+    cmd: "systemctl is-active {{ esde_getty_unit }}"
+  register: esde_getty
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode and not esde_restart_skip | bool
+  listen: restart es-de
+
+- name: Reset and restart a failed getty@tty1
+  ansible.builtin.shell:
+    cmd: "systemctl reset-failed {{ esde_getty_unit }} && systemctl restart {{ esde_getty_unit }}"
+  become: true
+  when: not ansible_check_mode and not esde_restart_skip | bool and (esde_getty.stdout | default('') | trim) == 'failed'
+  listen: restart es-de
+
+- name: Wait for ES-DE after the getty restart
+  ansible.builtin.shell:
+    cmd: "{{ esde_up_cmd }}"
+  register: esde_up2
+  until: esde_up2.rc == 0
+  retries: "{{ esde_restart_retries }}"
+  delay: "{{ esde_restart_delay }}"
+  changed_when: false
+  when: not ansible_check_mode and not esde_restart_skip | bool and (esde_up.rc | default(1)) != 0
+  listen: restart es-de
+
+- name: Let ES-DE load the systems before the log is read
+  ansible.builtin.command:
+    cmd: "sleep {{ esde_log_settle }}"
+  changed_when: false
+  when: not ansible_check_mode and not esde_restart_skip | bool
+  listen: restart es-de

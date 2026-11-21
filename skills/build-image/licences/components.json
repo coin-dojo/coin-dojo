@@ -1,0 +1,403 @@
+{
+  "about": "What a built image redistributes besides Debian/Raspberry Pi OS packages (#254, #267). One entry per component: licence (SPDX), exact source, licence texts pinned by sha256. Read by scripts/licences.py (fetch, build, check). Debian packages are listed from the image's own dpkg database at build time, never here. Licence texts were read at their pinned URL on 2026-11-19. Not legal advice; I'm not a lawyer.",
+  "schema": 1,
+  "checked": "2026-11-19",
+  "core_dir": "/usr/lib/aarch64-linux-gnu/libretro",
+  "scan": ["/usr/lib/aarch64-linux-gnu/libretro", "/data/emulators", "/opt"],
+  "components": [
+    {
+      "id": "coindojo",
+      "name": "Coin Dojo (this project: scripts, configs, theme, SETTINGS app)",
+      "version": "image version",
+      "spdx": "MIT AND CC-BY-SA-4.0",
+      "origin": "ours",
+      "source": "the project's repository (README.md), at the tag of this image",
+      "ref": "image version",
+      "paths": [],
+      "licence_files": [
+        {"name": "LICENSE", "repo": "LICENSE"},
+        {"name": "LICENSE-art", "repo": "LICENSE-art"}
+      ]
+    },
+    {
+      "id": "fonts",
+      "name": "Fonts in the theme: Archivo Black, Rajdhani, Press Start 2P",
+      "version": "as vendored in the theme",
+      "spdx": "OFL-1.1",
+      "origin": "ours",
+      "source": "the project's repository, themes/coin-dojo/_inc/fonts/",
+      "ref": "image version",
+      "paths": [],
+      "licence_files": [
+        {"name": "OFL-ArchivoBlack.txt", "repo": "themes/coin-dojo/_inc/fonts/OFL-ArchivoBlack.txt"},
+        {"name": "OFL-PressStart2P.txt", "repo": "themes/coin-dojo/_inc/fonts/OFL-PressStart2P.txt"},
+        {"name": "OFL-Rajdhani.txt", "repo": "themes/coin-dojo/_inc/fonts/OFL-Rajdhani.txt"}
+      ]
+    },
+    {
+      "id": "es-de",
+      "name": "ES-DE (EmulationStation Desktop Edition)",
+      "version": "3.5.0",
+      "spdx": "MIT",
+      "origin": "download",
+      "download": "https://packages.es-de.org/release/3.5.0/ES-DE_aarch64.AppImage",
+      "source": "https://gitlab.com/es-de/emulationstation-de",
+      "ref": "v3.5.0",
+      "paths": ["/opt/ES-DE/squashfs-root/AppRun"],
+      "covers": ["/opt/ES-DE"],
+      "libraries": "skills/build-image/licences/esde-libraries.tsv",
+      "libraries_root": "/opt/ES-DE/squashfs-root",
+      "licence_files": [
+        {"name": "LICENSE", "url": "https://gitlab.com/es-de/emulationstation-de/-/raw/v3.5.0/LICENSE", "sha256": "656c65b8ac04f57afe92b38f21a2f0a514956e1d6ce63563f9d3e2b3b019accc"}
+      ]
+    },
+    {
+      "id": "retroarch",
+      "name": "RetroArch",
+      "version": "1.22.2",
+      "spdx": "GPL-3.0-or-later",
+      "origin": "built",
+      "build": "build/retroarch",
+      "pin": "RA_COMMIT",
+      "source": "https://github.com/libretro/RetroArch",
+      "ref": "69a4f0ea1e8aaf442ae4858f2e7f2b31a1776576",
+      "paths": ["/data/emulators/retroarch-1.22/retroarch"],
+      "covers": ["/data/emulators/retroarch-1.22"],
+      "licence_files": [
+        {"name": "COPYING", "url": "https://raw.githubusercontent.com/libretro/RetroArch/69a4f0ea1e8aaf442ae4858f2e7f2b31a1776576/COPYING", "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"}
+      ]
+    },
+    {
+      "id": "mupen64plus_next",
+      "name": "Mupen64Plus-Next libretro core (GLES3 build)",
+      "core": "mupen64plus_next",
+      "version": "15bada85 (develop, 2026-11-14)",
+      "spdx": "GPL-2.0-or-later",
+      "origin": "built",
+      "build": "build/n64",
+      "pin": "MUPEN_COMMIT",
+      "source": "https://github.com/libretro/mupen64plus-libretro-nx",
+      "ref": "15bada85906593376e8fd697f1b0b3af3a20f512",
+      "paths": ["/data/emulators/mupen64plus-gles/mupen64plus_next_libretro.so"],
+      "covers": ["/data/emulators/mupen64plus-gles"],
+      "licence_files": [
+        {"name": "LICENSE", "url": "https://raw.githubusercontent.com/libretro/mupen64plus-libretro-nx/15bada85906593376e8fd697f1b0b3af3a20f512/LICENSE", "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"}
+      ]
+    },
+    {
+      "id": "flycast",
+      "name": "Flycast (standalone)",
+      "version": "2.7",
+      "spdx": "GPL-2.0-or-later",
+      "origin": "built",
+      "build": "build/flycast",
+      "pin": "FLYCAST_TAG",
+      "tag": "v2.7",
+      "source": "https://github.com/flyinghead/flycast",
+      "ref": "5aa091fde632fb332c8d8c34e280d62dc951954c",
+      "paths": ["/data/emulators/flycast/flycast"],
+      "covers": ["/data/emulators/flycast"],
+      "licence_files": [
+        {"name": "LICENSE", "url": "https://raw.githubusercontent.com/flyinghead/flycast/5aa091fde632fb332c8d8c34e280d62dc951954c/LICENSE", "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"}
+      ]
+    },
+    {
+      "id": "stella",
+      "name": "Stella libretro core",
+      "core": "stella",
+      "version": "7.0",
+      "spdx": "GPL-2.0-only",
+      "spdx_note": "License.txt is GPLv2 and the headers name no version; treated as -only, the stricter reading",
+      "origin": "built",
+      "build": "build/stella",
+      "pin": "STELLA_COMMIT",
+      "source": "https://github.com/stella-emu/stella",
+      "ref": "d55b1aec0d067a4c901a6dcdf81cb8f579685659",
+      "paths": ["/usr/lib/aarch64-linux-gnu/libretro/stella_libretro.so"],
+      "licence_files": [
+        {"name": "License.txt", "url": "https://raw.githubusercontent.com/stella-emu/stella/d55b1aec0d067a4c901a6dcdf81cb8f579685659/License.txt", "sha256": "58530d09b6fcb91ae27071be0081af90e6c2d7fdf991d34a29e234a2a5e75455"}
+      ]
+    },
+    {
+      "id": "fbneo",
+      "name": "FinalBurn Neo libretro core",
+      "core": "fbneo",
+      "version": "5f6bdff9 (master, 2026-11-19)",
+      "spdx": "LicenseRef-FBNeo",
+      "origin": "built",
+      "build": "build/fbneo",
+      "pin": "CORE_COMMIT",
+      "noncommercial": true,
+      "source": "https://github.com/libretro/FBNeo",
+      "ref": "5f6bdff9451d5c3dedd3d992d7412660eb202cf4",
+      "paths": ["/usr/lib/aarch64-linux-gnu/libretro/fbneo_libretro.so"],
+      "licence_files": [
+        {"name": "license.txt", "url": "https://raw.githubusercontent.com/libretro/FBNeo/5f6bdff9451d5c3dedd3d992d7412660eb202cf4/src/license.txt", "sha256": "cb9529c145dd1f0cab2b0bd708edf6b3d1ba6e48c4d667ffadb9e2014933b648"}
+      ]
+    },
+    {
+      "id": "mame",
+      "name": "MAME libretro core (current MAME)",
+      "core": "mame",
+      "version": "5f5a0774 (master, 2026-11-19)",
+      "spdx": "GPL-2.0-only",
+      "spdx_note": "MAME as a whole is GPL version 2; single files may be BSD-3-Clause or other, per their headers",
+      "origin": "built",
+      "build": "build/mame",
+      "pin": "CORE_COMMIT",
+      "source": "https://github.com/libretro/mame",
+      "ref": "5f5a07748ce5c239c4118463ce8e6473743d4859",
+      "paths": ["/usr/lib/aarch64-linux-gnu/libretro/mame_libretro.so"],
+      "licence_files": [
+        {"name": "COPYING", "url": "https://raw.githubusercontent.com/libretro/mame/5f5a07748ce5c239c4118463ce8e6473743d4859/COPYING", "sha256": "60e9b2e1e0832d74696a9a0317693bb6cbe317747caad589a338e2c7636933e4"}
+      ]
+    },
+    {
+      "id": "mednafen_pce",
+      "name": "Beetle PCE libretro core",
+      "core": "mednafen_pce",
+      "version": "0c9db4d5 (master, 2026-11-19)",
+      "spdx": "GPL-2.0-or-later",
+      "origin": "built",
+      "build": "build/mednafen_pce",
+      "pin": "CORE_COMMIT",
+      "source": "https://github.com/libretro/beetle-pce-libretro",
+      "ref": "0c9db4d5d65d661100354442ff426585eaff4987",
+      "paths": ["/usr/lib/aarch64-linux-gnu/libretro/mednafen_pce_libretro.so"],
+      "licence_files": [
+        {"name": "COPYING", "url": "https://raw.githubusercontent.com/libretro/beetle-pce-libretro/0c9db4d5d65d661100354442ff426585eaff4987/COPYING", "sha256": "a6996dcf0c334281f734560926e079b2dbbd5b78e81c0ca00a413ec01e1cd2fb"}
+      ]
+    },
+    {
+      "id": "mednafen_saturn",
+      "name": "Beetle Saturn libretro core",
+      "core": "mednafen_saturn",
+      "version": "7126d65b (master, 2026-11-19)",
+      "spdx": "GPL-2.0-or-later",
+      "origin": "built",
+      "build": "build/mednafen_saturn",
+      "pin": "CORE_COMMIT",
+      "source": "https://github.com/libretro/beetle-saturn-libretro",
+      "ref": "7126d65b83b65b4316736434ecca2f5ff4f1a3dd",
+      "paths": ["/usr/lib/aarch64-linux-gnu/libretro/mednafen_saturn_libretro.so"],
+      "licence_files": [
+        {"name": "COPYING", "url": "https://raw.githubusercontent.com/libretro/beetle-saturn-libretro/7126d65b83b65b4316736434ecca2f5ff4f1a3dd/COPYING", "sha256": "a6996dcf0c334281f734560926e079b2dbbd5b78e81c0ca00a413ec01e1cd2fb"}
+      ]
+    },
+    {
+      "id": "genesis_plus_gx",
+      "name": "Genesis Plus GX libretro core",
+      "core": "genesis_plus_gx",
+      "version": "b9c23164 (master, 2026-11-19)",
+      "spdx": "LicenseRef-GenesisPlusGX AND LGPL-2.1-or-later AND BSD-3-Clause AND CC0-1.0",
+      "spdx_note": "the main licence is non-commercial; bundled Nuked OPN2 is LGPL-2.1-or-later, Tremor BSD, minimp3 CC0 (LICENSE.txt)",
+      "origin": "built",
+      "build": "build/genesis_plus_gx",
+      "pin": "CORE_COMMIT",
+      "noncommercial": true,
+      "source": "https://github.com/libretro/Genesis-Plus-GX",
+      "ref": "b9c2316441978d4015ba30e9a95d9b0e6f8ee981",
+      "paths": ["/usr/lib/aarch64-linux-gnu/libretro/genesis_plus_gx_libretro.so"],
+      "licence_files": [
+        {"name": "LICENSE.txt", "url": "https://raw.githubusercontent.com/libretro/Genesis-Plus-GX/b9c2316441978d4015ba30e9a95d9b0e6f8ee981/LICENSE.txt", "sha256": "642c163624269243d1f6b29d759d4e3a2d161bdc272c90d82ecbeec82ae26755"}
+      ]
+    },
+    {
+      "id": "snes9x",
+      "name": "Snes9x libretro core",
+      "core": "snes9x",
+      "version": "204ea1c0 (master, 2026-11-19)",
+      "spdx": "LicenseRef-Snes9x",
+      "spdx_note": "non-commercial; bundled JMA GPL/LGPL, snes_ntsc LGPL, xBRZ GPL-3.0 per LICENSE",
+      "origin": "built",
+      "build": "build/snes9x",
+      "pin": "CORE_COMMIT",
+      "noncommercial": true,
+      "source": "https://github.com/libretro/snes9x",
+      "ref": "204ea1c0b851f960cbf223075eb1c25641cb483c",
+      "paths": ["/usr/lib/aarch64-linux-gnu/libretro/snes9x_libretro.so"],
+      "licence_files": [
+        {"name": "LICENSE", "url": "https://raw.githubusercontent.com/libretro/snes9x/204ea1c0b851f960cbf223075eb1c25641cb483c/LICENSE", "sha256": "70efeee282d82a6e9d26aeed5466d08c632369858371dc6a4644c8dcedc2be78"}
+      ]
+    },
+    {
+      "id": "nestopia",
+      "name": "Nestopia UE libretro core",
+      "core": "nestopia",
+      "version": "f1e02d12 (master, 2026-11-19)",
+      "spdx": "GPL-2.0-or-later",
+      "origin": "built",
+      "build": "build/nestopia",
+      "pin": "CORE_COMMIT",
+      "source": "https://github.com/libretro/nestopia",
+      "ref": "f1e02d12664834536edbf7352995a3d0cd1caef4",
+      "paths": ["/usr/lib/aarch64-linux-gnu/libretro/nestopia_libretro.so"],
+      "licence_files": [
+        {"name": "COPYING", "url": "https://raw.githubusercontent.com/libretro/nestopia/f1e02d12664834536edbf7352995a3d0cd1caef4/COPYING", "sha256": "df84246204e3c54cd24aebbc23714235f5fc41d754d53b65444a2afbf070130f"}
+      ]
+    },
+    {
+      "id": "pcsx_rearmed",
+      "name": "PCSX-ReARMed libretro core",
+      "core": "pcsx_rearmed",
+      "version": "7b0e8f8f (master, 2026-11-19)",
+      "spdx": "GPL-2.0-or-later",
+      "origin": "built",
+      "build": "build/pcsx_rearmed",
+      "pin": "CORE_COMMIT",
+      "source": "https://github.com/libretro/pcsx_rearmed",
+      "ref": "7b0e8f8fadfbce3d170d195b9d9eecaabfa08c8e",
+      "paths": ["/usr/lib/aarch64-linux-gnu/libretro/pcsx_rearmed_libretro.so"],
+      "licence_files": [
+        {"name": "COPYING", "url": "https://raw.githubusercontent.com/libretro/pcsx_rearmed/7b0e8f8fadfbce3d170d195b9d9eecaabfa08c8e/COPYING", "sha256": "0efb4db8000c609bd2f06e61fcbc59af05519d122f5b3597b7c493224946c61d"}
+      ]
+    },
+    {
+      "id": "glsl-shaders",
+      "name": "libretro GLSL shaders (crt-pi and the rest of the tree)",
+      "version": "a35069864b4b (role retroarch122 and chroot-setup.sh, sha256-checked)",
+      "spdx": "LicenseRef-per-file-headers",
+      "spdx_note": "shipped as source; each file's header names its licence (crt-pi: GPL-2.0-or-later)",
+      "origin": "source",
+      "source": "https://github.com/libretro/glsl-shaders",
+      "ref": "a35069864b4bf30f8c8e740d57206543fb7e745e",
+      "paths": [],
+      "licence_files": []
+    },
+    {
+      "id": "box64",
+      "name": "Box64",
+      "version": "0.4.4",
+      "spdx": "MIT",
+      "origin": "built",
+      "build": "build/box64",
+      "pin": "BOX64_COMMIT",
+      "optional": true,
+      "source": "https://github.com/ptitSeb/box64",
+      "ref": "2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a",
+      "paths": ["/data/fightcade/opt/box64/box64"],
+      "licence_files": [
+        {"name": "LICENSE", "url": "https://raw.githubusercontent.com/ptitSeb/box64/2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a/LICENSE", "sha256": "18731c3637a3dfc5859be67db7d315d438c531396a4ed15a9c88421b520e7883"}
+      ]
+    },
+    {
+      "id": "box64-x64lib-openssl10",
+      "name": "OpenSSL 1.0 x86_64 libraries in Box64's x64lib/ (libcrypto, libssl)",
+      "version": "1.0.1 (the files' version string: OpenSSL 1.0.1 14 Mar 2012)",
+      "spdx": "OpenSSL",
+      "spdx_note": "the OpenSSL licence and the original SSLeay licence, both in LICENSE",
+      "origin": "download",
+      "download": "https://github.com/ptitSeb/box64/tree/2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a/x64lib",
+      "built_by": "prebuilt, shipped in the Box64 repo at the Box64 ref (added 2024-07-08); builder not named",
+      "optional": true,
+      "source": "https://github.com/openssl/openssl",
+      "ref": "49f6cb968ff63793f6671d9026fb2a7034dad79a",
+      "paths": ["/data/fightcade/opt/box64/x64lib/libcrypto.so.1.0.0", "/data/fightcade/opt/box64/x64lib/libssl.so.1.0.0"],
+      "licence_files": [
+        {"name": "LICENSE", "url": "https://raw.githubusercontent.com/openssl/openssl/49f6cb968ff63793f6671d9026fb2a7034dad79a/LICENSE", "sha256": "257fe1b542f846557d0fc938f4206d6c9a6334e2b571fa020e51f96377537120"}
+      ]
+    },
+    {
+      "id": "box64-x64lib-openssl11",
+      "name": "OpenSSL 1.1 x86_64 libraries in Box64's x64lib/ (libcrypto, libssl)",
+      "version": "1.1.1n",
+      "spdx": "OpenSSL",
+      "spdx_note": "the OpenSSL licence and the original SSLeay licence, both in LICENSE",
+      "origin": "download",
+      "download": "https://github.com/ptitSeb/box64/tree/2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a/x64lib",
+      "built_by": "prebuilt (GCC 4.4.7 Red Hat), shipped in the Box64 repo at the Box64 ref",
+      "optional": true,
+      "source": "https://github.com/openssl/openssl",
+      "ref": "d82e959e621a3d597f1e0d50ff8c2d8b96915fd7",
+      "paths": ["/data/fightcade/opt/box64/x64lib/libcrypto.so.1.1", "/data/fightcade/opt/box64/x64lib/libssl.so.1.1"],
+      "licence_files": [
+        {"name": "LICENSE", "url": "https://raw.githubusercontent.com/openssl/openssl/d82e959e621a3d597f1e0d50ff8c2d8b96915fd7/LICENSE", "sha256": "c32913b33252e71190af2066f08115c69bc9fddadf3bf29296e20c835389841c"}
+      ]
+    },
+    {
+      "id": "box64-x64lib-mbedtls",
+      "name": "Mbed TLS x86_64 libraries in Box64's x64lib/ (libmbedcrypto, libmbedtls, libmbedx509 and their .so.3/.so.12/.so.0 links)",
+      "version": "2.28.3",
+      "spdx": "Apache-2.0",
+      "spdx_note": "2.28.3 is Apache-2.0 only (the GPL-2.0-or-later option came with 2.28.5)",
+      "origin": "download",
+      "download": "https://github.com/ptitSeb/box64/tree/2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a/x64lib",
+      "built_by": "prebuilt (GCC Debian 12.2.0-14, a Debian 12 build), shipped in the Box64 repo at the Box64 ref",
+      "optional": true,
+      "source": "https://github.com/Mbed-TLS/mbedtls",
+      "ref": "981743de6fcdbe672e482b6fd724d31d0a0d2476",
+      "paths": ["/data/fightcade/opt/box64/x64lib/libmbedcrypto.so.7", "/data/fightcade/opt/box64/x64lib/libmbedcrypto.so.3", "/data/fightcade/opt/box64/x64lib/libmbedtls.so.14", "/data/fightcade/opt/box64/x64lib/libmbedtls.so.12", "/data/fightcade/opt/box64/x64lib/libmbedx509.so.1", "/data/fightcade/opt/box64/x64lib/libmbedx509.so.0"],
+      "licence_files": [
+        {"name": "LICENSE", "url": "https://raw.githubusercontent.com/Mbed-TLS/mbedtls/981743de6fcdbe672e482b6fd724d31d0a0d2476/LICENSE", "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"}
+      ]
+    },
+    {
+      "id": "box64-x64lib-gcc-runtime",
+      "name": "GCC runtime x86_64 libraries in Box64's x64lib/ (libstdc++.so.6, libgcc_s.so.1)",
+      "version": "15.2.0 (Debian gcc-15 15.2.0-12, amd64)",
+      "spdx": "GPL-3.0-or-later WITH GCC-exception-3.1",
+      "spdx_note": "GPL-3.0 with the GCC Runtime Library Exception 3.1; exact source: Debian's gcc-15 15.2.0-12 (snapshot.debian.org/package/gcc-15/15.2.0-12/), covered by the written offer",
+      "origin": "download",
+      "download": "https://github.com/ptitSeb/box64/tree/2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a/x64lib",
+      "built_by": "Debian gcc-15 15.2.0-12 amd64 (the files' package note), shipped in the Box64 repo at the Box64 ref",
+      "optional": true,
+      "source": "https://github.com/gcc-mirror/gcc",
+      "ref": "5115c7e447fc07457443df874bf57840e8316d5f",
+      "paths": ["/data/fightcade/opt/box64/x64lib/libstdc++.so.6", "/data/fightcade/opt/box64/x64lib/libgcc_s.so.1"],
+      "licence_files": [
+        {"name": "COPYING3", "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/5115c7e447fc07457443df874bf57840e8316d5f/COPYING3", "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"},
+        {"name": "COPYING.RUNTIME", "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/5115c7e447fc07457443df874bf57840e8316d5f/COPYING.RUNTIME", "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"}
+      ]
+    },
+    {
+      "id": "box64-x64lib-libstdcxx5",
+      "name": "GCC 3.3 libstdc++.so.5 x86_64 in Box64's x64lib/",
+      "version": "3.3.6 (Mageia 3.3.6-19.mga9 build)",
+      "spdx": "GPL-2.0-or-later WITH LicenseRef-libstdcxx-exception",
+      "spdx_note": "GPL-2.0 with the libstdc++ runtime exception (quoted in license.html); exact source: GCC 3.3.6 as Mageia packaged it, covered by the written offer",
+      "origin": "download",
+      "download": "https://github.com/ptitSeb/box64/tree/2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a/x64lib",
+      "built_by": "prebuilt (GCC 3.3.6, Mageia 3.3.6-19.mga9), shipped in the Box64 repo at the Box64 ref (added 2022-07-09)",
+      "optional": true,
+      "source": "https://github.com/gcc-mirror/gcc",
+      "ref": "29c148d63d668b7224aeece8f17b2de098feb3b2",
+      "paths": ["/data/fightcade/opt/box64/x64lib/libstdc++.so.5"],
+      "licence_files": [
+        {"name": "COPYING", "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/29c148d63d668b7224aeece8f17b2de098feb3b2/COPYING", "sha256": "32b1062f7da84967e7019d01ab805935caa7ab7321a7ced0e30ebe75e5df1670"},
+        {"name": "license.html", "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/29c148d63d668b7224aeece8f17b2de098feb3b2/libstdc++-v3/docs/html/17_intro/license.html", "sha256": "3e33dc57c647b645e09d5f825d932b7642b5c3d3b3db98843e338576267b1cc4"}
+      ]
+    },
+    {
+      "id": "box64-x64lib-libpng12",
+      "name": "libpng 1.2 x86_64 library in Box64's x64lib/ (libpng12.so.0)",
+      "version": "1.2.54",
+      "spdx": "Libpng",
+      "origin": "download",
+      "download": "https://github.com/ptitSeb/box64/tree/2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a/x64lib",
+      "built_by": "prebuilt, shipped in the Box64 repo at the Box64 ref (added 2022-01-06)",
+      "optional": true,
+      "source": "https://github.com/pnggroup/libpng",
+      "ref": "2d2fe5e9efbaba6339742807b93a2646aae88475",
+      "paths": ["/data/fightcade/opt/box64/x64lib/libpng12.so.0"],
+      "licence_files": [
+        {"name": "LICENSE", "url": "https://raw.githubusercontent.com/pnggroup/libpng/2d2fe5e9efbaba6339742807b93a2646aae88475/LICENSE", "sha256": "d79215e6b757d75797432ef12ee65a3ee8b9422df93700f4e32b95f2a1b3defe"}
+      ]
+    },
+    {
+      "id": "box64-x64lib-libunwind",
+      "name": "libunwind x86_64 library in Box64's x64lib/ (libunwind.so.8)",
+      "version": "1.6.2 (Debian libunwind8 1.6.2-3, amd64)",
+      "spdx": "MIT",
+      "origin": "download",
+      "download": "https://github.com/ptitSeb/box64/tree/2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a/x64lib",
+      "built_by": "Debian libunwind8 1.6.2-3 amd64 (sha256 matches that package's libunwind.so.8.0.1), shipped in the Box64 repo at the Box64 ref",
+      "optional": true,
+      "source": "https://github.com/libunwind/libunwind",
+      "ref": "b3ca1b59a795a617877c01fe5d299ab7a07ff29d",
+      "paths": ["/data/fightcade/opt/box64/x64lib/libunwind.so.8"],
+      "licence_files": [
+        {"name": "COPYING", "url": "https://raw.githubusercontent.com/libunwind/libunwind/b3ca1b59a795a617877c01fe5d299ab7a07ff29d/COPYING", "sha256": "6a0dbbdaec2b3136b7bf045586f4212bdf74e7af688bf9dfe9154607cf5ec156"}
+      ]
+    }
+  ]
+}

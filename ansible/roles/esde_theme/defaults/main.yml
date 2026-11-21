@@ -1,0 +1,58 @@
+# esde_theme (#89): the coin-dojo ES-DE theme from the repo, then the personal overlay.
+# NEVER the whole theme folder (AGENTS.md "Deploying the theme"): its _inc/art placeholders would
+# replace the cabinet's real art (happened 2026-11-14, restored). Only the files and _inc dirs named
+# here go; backdrops/default.png is the night art (#263) with its eye glow (backdrops/eye-glow.*) and the boot-menu cards (_inc/art/bootmenu); your own art comes from personal/themes or hk_theme_art_dir (skipped in EDITION=community).
+esde_theme_src: "{{ hk_repo_root }}/themes/{{ esde_theme_name }}"
+esde_theme_overlay: "{{ hk_repo_root }}/personal/themes/{{ esde_theme_name }}"
+
+# Top-level theme files (no README/LICENSE: they are docs, ES-DE does not read them).
+esde_theme_files:
+  - theme.xml
+  - capabilities.xml
+  - colors.xml
+  - aspect-ratio-16-9.xml
+  - aspect-ratio-4-3.xml
+# Named _inc dirs, copied with their contents. Not _inc/art/backdrops (named files only: default.png and the eye
+# glow, see tasks), never _inc or _inc/art as a whole (tests/test_esde_roles.py).
+esde_theme_dirs:
+  - _inc/help
+  - _inc/chips
+  - _inc/systems
+  - _inc/icons
+  - _inc/controls
+  - _inc/fonts
+  - _inc/art/frames
+  - _inc/art/bootmenu    # the boot menu's two card illustrations (#263)
+  - _inc/per-system      # per-system overrides (#34: settings.xml hides the game counter under SETTINGS)
+
+# Levers (config/variables.d/theme.yml exports esde_theme_name, _personal, _art_dir, _eye_glow, _rev_stamp, _hotkey_strip;
+# no default here on purpose). The glow files are removed from the cabinet while the glow is off.
+esde_theme_gone: "{{ esde_theme_absent + ([] if esde_theme_eye_glow.enabled else esde_theme_eye_files) }}"
+esde_theme_eye_files: [_inc/art/backdrops/eye-glow.png, _inc/art/backdrops/eye-glow.json, _inc/art/backdrops/eye-glow.xml]   # internal
+
+# Files the theme no longer has: removed from the cabinet (backed up first). Favorites off (2026-11-14).
+# The backdrop names are #150: per-system backdrops that were byte-identical copies of default.png (sha256 737dcdd1...25c0). The theme
+# falls back to default.png (<default> in theme.xml). Explicit names only, never a wildcard. Skipped on the
+# cabinet when your own art folder (hk_theme_art_dir) stages the same name again.
+esde_theme_absent:
+  - _inc/systems/auto-favorites.png
+  - _inc/chips/auto-favorites.png
+  - _inc/art/backdrops/cps1.png
+  - _inc/art/backdrops/cps2.png
+  - _inc/art/backdrops/cps3.png
+  - _inc/art/backdrops/dreamcast.png
+  - _inc/art/backdrops/fbneo.png
+  - _inc/art/backdrops/genesis.png
+  - _inc/art/backdrops/n64.png
+  - _inc/art/backdrops/neogeo.png
+  - _inc/art/backdrops/nes.png
+  - _inc/art/backdrops/pcengine.png
+  - _inc/art/backdrops/psx.png
+  - _inc/art/backdrops/saturn.png
+  - _inc/art/backdrops/snes.png
+
+# Build stamp in the footer (theme.xml @COIN_DOJO_VERSION@); mk/flags.mk passes the real value.
+coin_dojo_version: unknown
+# #178: the main screen's "LP Trophies" hint (theme.xml trophiesHint, #177) only where the TROPHIES overlay runs:
+# RetroAchievements on and a user set (the settings role's trophiesd_enable). Otherwise staging removes the element.
+esde_theme_trophies_hint: "{{ (hk_cheevos_enable | default(false)) | bool and (hk_cheevos_user | default('')) | length > 0 }}"   # internal

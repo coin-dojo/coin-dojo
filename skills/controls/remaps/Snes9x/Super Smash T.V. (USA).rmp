@@ -1,0 +1,10 @@
+# Super Smash T.V. (SNES) twin stick (#59, NOT TESTED). The SNES game fires with the face buttons in a
+# diamond: X up, B down, Y left, A right (two at once = diagonal). User 2 feeds core port 1 and the P2
+# stick's d-pad becomes those buttons: up -> X (9), down -> B (0), left -> Y (1), right -> A (8).
+# P1 stick moves, P2 stick fires. One player only while this file is in place.
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "0"
+input_player2_btn_up = "9"
+input_player2_btn_down = "0"
+input_player2_btn_left = "1"
+input_player2_btn_right = "8"

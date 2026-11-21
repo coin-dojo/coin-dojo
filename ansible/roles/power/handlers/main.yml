@@ -1,0 +1,38 @@
+# Image build (#244, coin_dojo_image): none of these run; the image's first boot reads the new files anyway.
+# SIGHUP makes logind re-read its config without restarting it (sessions stay up).
+- name: reload logind
+  ansible.builtin.command: systemctl kill -s HUP systemd-logind
+  become: true
+  changed_when: true
+  when: not coin_dojo_image | default(false) | bool
+
+# Re-reads unit files and system.conf.d (manager defaults). Restarts nothing.
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+  when: not coin_dojo_image | default(false) | bool
+
+- name: restart powerd
+  ansible.builtin.systemd:
+    name: "{{ power_unit_name }}"
+    state: restarted
+    daemon_reload: true
+  become: true
+  when: not coin_dojo_image | default(false) | bool
+
+# The cabinet user's systemd --user manager re-reads unit files. It may not be running (no login yet): then the
+# next `systemctl --user start` finds the file anyway, so a failure here is fine.
+- name: reload user systemd
+  ansible.builtin.command: "systemctl --user --machine={{ cabinet_user }}@.host daemon-reload"
+  become: true
+  changed_when: true
+  failed_when: false
+  when: not coin_dojo_image | default(false) | bool
+
+- name: restart stickmouse
+  ansible.builtin.command: "systemctl --user --machine={{ cabinet_user }}@.host try-restart {{ stickmouse_unit_name }}"
+  become: true
+  changed_when: true
+  failed_when: false
+  when: not coin_dojo_image | default(false) | bool

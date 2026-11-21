@@ -1,0 +1,464 @@
+#!/bin/bash
+# coin-dojo-fightcade (#208, the #204 contract): Fightcade mode. coin-dojo-session (#209) runs it in the foreground
+# under its cage (WAYLAND_DISPLAY and, through Xwayland, DISPLAY set); it returns when the lobby closes, or promptly on
+# TERM (the session's stop hook and the SELECT+START combo; the session KILLs after 5 s). Installed by the ansible
+# role `fightcade`; every path comes from its config ($COIN_DOJO_FIGHTCADE_CONF). Bash 3.2 compatible.
+#
+#   coin-dojo-fightcade           run Fightcade mode
+#   coin-dojo-fightcade --check   only verify the install (exit 0 = everything in place, nothing started)
+#
+# Steps: (first-launch install only, #267: download + install Wine/Electron/Fightcade on the first start, below) ->
+# verify the install (missing artifact = exit 2, the session falls back to the menu) -> move into the systemd
+# user scope coin-dojo-fightcade (cleanup stops it as a whole) -> build the read-only RAM prefix in the session's run
+# dir, $XDG_RUNTIME_DIR/coin-dojo/fcprefix (#92: a
+# registry copy, c: = the base prefix's drive_c, z: = /; no registry save, no disk writes) -> a fresh fcadefbneo.ini
+# from the role's base (FBNeo rewrites it on exit) -> PULSE_SINK = the HDMI sink (#233) -> no X screen saver/DPMS
+# -> stick-as-mouse on (#211) -> the native arm64 Electron lobby with the visible cursor -> on exit: lobby, Wine, stick-as-mouse and RAM prefix gone.
+#
+# Exit codes: the lobby's own (0 = closed normally), 2 install incomplete (missing artifact, config, prefix or lobby CSS), 3 no X display
+# (Xwayland), 4 RAM prefix could not be built (run dir not writable or full), 5 FBNeo ini could not be written,
+# 6 run as root (refused, Security #215: the lobby is a 2020 Chromium with --no-sandbox on remote content, and Box64/Wine/
+# Electron are the cabinet user's files; --check only reads and may run as root), 143 TERM.
+# shellcheck disable=SC2317  # the cleanup functions run from traps (shellcheck sees them as unreachable)
+set -u
+CONF=${COIN_DOJO_FIGHTCADE_CONF:-/usr/local/etc/coin-dojo-fightcade.conf}
+
+say() { printf '%s coin-dojo-fightcade[%d]: %s\n' "$(date '+%F %T')" $$ "$*" >&2; }
+fail() { local rc=$1; shift; say "ERROR: $*"; exit "$rc"; }
+
+MODE=run
+case "${1:-}" in
+  "") ;;
+  --check) MODE=check ;;
+  --in-scope) MODE=scope ;;
+  -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
+  *) fail 2 "usage: coin-dojo-fightcade [--check]" ;;
+esac
+
+[ -r "$CONF" ] || fail 2 "missing config $CONF (deploy: make deploy TAGS=fightcade)"
+# shellcheck source=/dev/null
+. "$CONF"
+HK_FC_SYSTEMCTL=${HK_FC_SYSTEMCTL:-systemctl}
+
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+
+# --- 1. the install is complete --------------------------------------------------------------------------------
+preflight() {
+  local p
+  for p in "$HK_FC_BOX64" "$HK_FC_WINE/bin/wine" "$HK_FC_WINE/bin/wineserver" "$HK_FC_ELECTRON" \
+           "$HK_FC_BINDIR/wine" "$HK_FC_BINDIR/wineserver" "$HK_FC_BINDIR/fcade-url" "$HK_FC_TREE/emulator/fcade"; do
+    [ -x "$p" ] || fail 2 "missing artifact: $p (deploy: make deploy TAGS=fightcade)"
+  done
+  # fcade execs FBNeo's .exe directly (#228): it must be executable, and the binfmt entry must send it to the wrapper.
+  p="$HK_FC_TREE/emulator/fbneo/fcadefbneo.exe"
+  [ -f "$p" ] || fail 2 "missing artifact: $p (deploy: make deploy TAGS=fightcade)"
+  [ -x "$p" ] || fail 2 "$p is not executable: the lobby cannot start FBNeo (deploy: make deploy TAGS=fightcade)"
+  if [ -n "${HK_FC_BINFMT:-}" ] && [ "$(head -1 "$HK_FC_BINFMT" 2>/dev/null)" != enabled ]; then
+    say "WARN: binfmt entry $HK_FC_BINFMT is not enabled: TEST GAME/TRAINING cannot start FBNeo (deploy: make deploy TAGS=fightcade)"
+  fi
+  for p in "$HK_FC_BOX64_RC" "$HK_FC_APP/package.json" "$HK_FC_INI_BASE"; do
+    [ -f "$p" ] || fail 2 "missing artifact: $p (deploy: make deploy TAGS=fightcade)"
+  done
+  [ -d "$HK_FC_BOX64_LIB" ] || fail 2 "missing artifact: $HK_FC_BOX64_LIB (deploy: make deploy TAGS=fightcade)"
+  [ -f "$HK_FC_PREFIX/system.reg" ] && [ -d "$HK_FC_PREFIX/drive_c" ] \
+    || fail 2 "no base Wine prefix in $HK_FC_PREFIX (deploy: make deploy TAGS=fightcade)"
+  [ "$(cat "$HK_FC_PREFIX/.hk-stamp" 2>/dev/null)" = "$HK_FC_PREFIX_STAMP" ] \
+    || fail 2 "the base prefix $HK_FC_PREFIX was not built for this Wine ($HK_FC_PREFIX_STAMP); deploy again"
+  # The lobby CSS (centred 1440 px column, #204) is re-applied by every deploy; a missing or changed file means the
+  # tree was replaced by hand or the deploy did not finish.
+  [ -f "$HK_FC_CSS" ] || fail 2 "missing lobby CSS $HK_FC_CSS (deploy: make deploy TAGS=fightcade)"
+  [ "$(sha256 "$HK_FC_CSS")" = "$HK_FC_CSS_SHA256" ] || fail 2 "lobby CSS $HK_FC_CSS differs from the deployed one; deploy again"
+  # The on-screen keyboard (#227; nativefier's preload requires inject/inject.js): same rule as the CSS.
+  [ -f "$HK_FC_JS" ] || fail 2 "missing lobby keyboard script $HK_FC_JS (deploy: make deploy TAGS=fightcade)"
+  [ "$(sha256 "$HK_FC_JS")" = "$HK_FC_JS_SHA256" ] || fail 2 "lobby keyboard script $HK_FC_JS differs from the deployed one; deploy again"
+  # Nothing else may sit in inject/ (the sha checks cover only the two files; nativefier's preload loads inject.js, and a
+  # stray file there would be code or style the checks never saw).
+  for f in "$(dirname "$HK_FC_JS")"/* "$(dirname "$HK_FC_JS")"/.[!.]*; do
+    [ -e "$f" ] || continue
+    case "${f##*/}" in _placeholder|inject.css|inject.js) ;; *) fail 2 "unexpected file in the lobby inject folder: $f (remove it; deploy again)" ;; esac
+  done
+  [ -d "$HK_FC_PROFILE" ] && [ -w "$HK_FC_PROFILE" ] || fail 2 "lobby profile $HK_FC_PROFILE missing or not writable"
+}
+
+# --- 0. first launch (#267, HK_FC_INSTALL=first-launch): Wine, Electron and Fightcade are not in the image --------
+# `hk-fightcade-fetch --check` (a fraction of a second): 0 = installed and current, go on. Else the first-launch screen
+# (hk_fc_firstrun.py: consent, download, unpack, prefix) runs in the foreground; a TERM (SELECT+START, the session's
+# stop hook) is passed to it and it stops the download (kept for a resume). Its rc: 0 installed -> the lobby;
+# 4 cancelled by the player -> exit 0 (back to the menu, no failure); anything else -> exit 2 (it showed why).
+first_launch() {
+  local rc=0 pid termed=0 py=python3
+  export HK_FC_FETCH HK_FC_FETCH_MANIFEST HK_FC_UI_LIB
+  "$py" "$HK_FC_FETCH" --check >/dev/null 2>&1 || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    10 | 11) say "first launch: Fightcade is not installed or not current (hk-fightcade-fetch --check rc $rc): the first-launch screen" ;;
+    *) fail 2 "first launch: $HK_FC_FETCH --check failed (rc $rc); run it by hand to see why" ;;
+  esac
+  [ -f "$HK_FC_FIRSTRUN" ] || fail 2 "missing $HK_FC_FIRSTRUN (deploy: make deploy TAGS=fightcade)"
+  rc=0
+  "$py" "$HK_FC_FIRSTRUN" &
+  pid=$!
+  trap 'termed=1; kill -TERM "$pid" 2>/dev/null' TERM INT HUP
+  wait "$pid" || rc=$?
+  while kill -0 "$pid" 2>/dev/null; do rc=0; wait "$pid" || rc=$?; done
+  trap - TERM INT HUP
+  [ "$termed" = 1 ] && { say "TERM during the first launch"; exit 143; }
+  case "$rc" in
+    0) say "first launch: Fightcade is installed" ;;
+    4) say "first launch: cancelled by the player"; exit 0 ;;
+    *) fail 2 "first launch did not finish (rc $rc; the screen said why; $HK_FC_LOGS/fetch.log)" ;;
+  esac
+}
+if [ "$MODE" = run ] && [ "${HK_FC_INSTALL:-deploy}" = first-launch ]; then
+  [ "$(id -u)" != 0 ] || fail 6 "refusing to run as root: Fightcade mode runs as the cabinet user (coin-dojo-session starts it)"
+  first_launch
+fi
+preflight
+if [ "$MODE" = check ]; then
+  say "install ok: $HK_FC_DIR"
+  exit 0
+fi
+# Never start Fightcade mode as root (exit 6, before the scope, the prefix or any Box64/Wine/Electron).
+[ "$(id -u)" != 0 ] || fail 6 "refusing to run as root: Fightcade mode runs as the cabinet user (coin-dojo-session starts it)"
+
+# --- 2. the systemd user scope (coin-dojo-cleanup stops it as a whole) --------------------------------------------
+# exec keeps this pid, so the session's TERM still reaches the script. No user manager (a test, a bare VM): no scope.
+if [ "$MODE" = run ] && [ "${HK_FC_SCOPE:-1}" = 1 ]; then
+  if command -v systemd-run >/dev/null 2>&1 && "$HK_FC_SYSTEMCTL" --user show-environment >/dev/null 2>&1; then
+    if "$HK_FC_SYSTEMCTL" --user is-active --quiet "$HK_FC_UNIT.scope" 2>/dev/null; then
+      say "a stale $HK_FC_UNIT.scope is running: stopping it first"
+      "$HK_FC_SYSTEMCTL" --user stop "$HK_FC_UNIT.scope" 2>/dev/null
+    fi
+    exec systemd-run --user --scope --collect --quiet --unit="$HK_FC_UNIT" \
+      ${HK_FC_SCOPE_PROPS[@]+"${HK_FC_SCOPE_PROPS[@]}"} -- "$0" --in-scope
+  fi
+  say "WARN: no systemd user manager: running without the $HK_FC_UNIT scope"
+fi
+
+# --- 3. cleanup on every way out ------------------------------------------------------------------------------------
+EPID=""
+STICK=0
+TERMED=0
+
+rm_prefix() {
+  [ -e "$HK_FC_SHM_PREFIX" ] || [ -L "$HK_FC_SHM_PREFIX" ] || return 0
+  chmod -R u+w "$HK_FC_SHM_PREFIX" 2>/dev/null
+  rm -rf "$HK_FC_SHM_PREFIX"
+}
+
+# bounded RUN SECONDS CMD...: run CMD, KILL it after SECONDS (the session KILLs us 5 s after its TERM).
+bounded() {
+  local secs=$1 i=0 pid
+  shift
+  "$@" >/dev/null 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt $((secs * 10)) ]; do sleep 0.1; i=$((i + 1)); done
+  kill -KILL "$pid" 2>/dev/null
+  wait "$pid" 2>/dev/null
+}
+
+# --- the wine processes of this Fightcade mode (#257) -------------------------------------------------------------------
+# Every process Fightcade mode starts for Wine (the persistent wineserver, wine, box64 children, FBNeo, fcade) inherits
+# WINEPREFIX=<the RAM prefix> from this script, so the environment names them whatever their comm (box64 renames it).
+# Only this user's processes are readable; this script and its parent are never listed. HK_FC_PROC: tests point it at a fake /proc.
+FC_PROC=${HK_FC_PROC:-/proc}
+SELF_CMD=$(tr '\0' ' ' 2>/dev/null < "$FC_PROC/$$/cmdline")   # empty under a fake /proc
+WSSTART=""   # pid (= process group) of the background wineserver start
+WSUPF=""     # marker file the background start writes once the persistent wineserver was seen up (a subshell cannot set a variable)
+FIN_BUDGET_MS=4000   # finish() must be done well inside the session's KILL, 5 s after its TERM
+
+# now_ms: milliseconds, monotonic enough (bash 5 EPOCHREALTIME; older bash: whole seconds)
+now_ms() {
+  local t=${EPOCHREALTIME:-}
+  if [ -n "$t" ]; then echo $(( ${t/./} / 1000 )); else echo $((SECONDS * 1000)); fi
+}
+
+wine_pids() {
+  local d pid
+  for d in "$FC_PROC"/[0-9]*; do
+    pid=${d##*/}
+    [ "$pid" = "$$" ] || [ "$pid" = "$PPID" ] && continue
+    [ -r "$d/environ" ] || continue
+    kill -0 "$pid" 2>/dev/null || continue
+    # our own `$(...)` subshells share this script's cmdline and its WINEPREFIX: never count them (VM proof: a false leak)
+    [ -n "$SELF_CMD" ] && [ "$(tr '\0' ' ' 2>/dev/null < "$d/cmdline")" = "$SELF_CMD" ] && continue
+    if tr '\0' '\n' 2>/dev/null < "$d/environ" | grep -qxF "WINEPREFIX=$HK_FC_SHM_PREFIX"; then echo "$pid"; fi
+  done
+}
+# The wineserver among them (its cmdline names it: `box64 .../wineserver -p`).
+ws_pids() {
+  local pid
+  for pid in $(wine_pids); do
+    if tr '\0' ' ' 2>/dev/null < "$FC_PROC/$pid/cmdline" | grep -q 'wineserver'; then echo "$pid"; fi
+  done
+}
+# Wine / Box64 / a game (not Electron's children, fcade-url's shell or taskkill's helpers): what counts as a wine leak.
+is_wine_proc() { tr '\0' ' ' 2>/dev/null < "$FC_PROC/$1/cmdline" | grep -Eqi 'wine|box64|[.]exe|fcade'; }
+describe_pids() {
+  local pid c a out=""
+  for pid in "$@"; do
+    c=$(cat 2>/dev/null < "$FC_PROC/$pid/comm" || echo "?")
+    a=$(tr '\0' ' ' 2>/dev/null < "$FC_PROC/$pid/cmdline" | cut -c1-60)
+    out="$out $c($pid: $a)"
+  done
+  echo "${out# }"
+}
+# reap_wine WHY [DEADLINE_MS]: whatever of ours is still alive for the prefix gets TERM, then KILL after at most 1 s (or the
+# deadline); logged as a WARN. Returns 0 when something had to be reaped, 1 when nothing was left. REAPED_WINE is set to
+# 1 when any of it looked like wine/box64/a game (a leak), REAPED_OTHER when only other processes of the mode were left.
+REAPED_WINE=0
+REAPED_OTHER=0
+reap_wine() {
+  local pids p alive t_end now
+  # no pipe here: the other end of a pipe (tr) is itself a process with our WINEPREFIX that would be listed (VM proof)
+  pids=$(wine_pids)
+  pids=${pids//$'\n'/ }
+  [ -n "$pids" ] || return 1
+  for p in $pids; do if is_wine_proc "$p"; then REAPED_WINE=1; else REAPED_OTHER=1; fi; done
+  # shellcheck disable=SC2086
+  say "WARN: $1: ${pids// /,} still alive for $HK_FC_SHM_PREFIX ($(describe_pids $pids)): TERM"
+  for p in $pids; do kill -TERM "$p" 2>/dev/null; done
+  t_end=$(( $(now_ms) + 1000 ))
+  [ -n "${2:-}" ] && [ "$2" -lt "$t_end" ] && t_end=$2
+  while :; do
+    alive=""
+    for p in $pids; do kill -0 "$p" 2>/dev/null && alive="$alive $p"; done
+    [ -z "$alive" ] && return 0
+    now=$(now_ms)
+    [ "$now" -ge "$t_end" ] && break
+    sleep 0.1
+  done
+  say "WARN: $1: KILL$alive"
+  for p in $alive; do kill -KILL "$p" 2>/dev/null; done
+  return 0
+}
+# The name of the socket dir wineserver makes for a prefix in /tmp/.wine-<uid>: server-<st_dev>-<st_ino>, both in hex.
+sock_name() {
+  local a
+  a=$(stat -c '%d %i' "$1" 2>/dev/null || stat -f '%d %i' "$1" 2>/dev/null) || return 1
+  [ -n "$a" ] || return 1
+  printf 'server-%x-%x' "${a% *}" "${a#* }"
+}
+# A killed wineserver leaves its socket dir behind; once none of ours is alive, THAT prefix's socket is removed (only that
+# one: never another prefix's, wine handles the rest). clean_wine_sockets NAME
+clean_wine_sockets() {
+  local dir=${HK_FC_WINE_TMP:-/tmp/.wine-$(id -u)}
+  [ -n "${1:-}" ] && [ -d "$dir" ] || return 0
+  [ -z "$(wine_pids)" ] || return 0
+  rm -rf "${dir:?}/$1" 2>/dev/null
+}
+CUR_SOCK=""   # this run's socket dir name, taken once the RAM prefix exists
+
+finish() {
+  local i=0 t0 deadline round=0 left
+  trap '' TERM INT HUP
+  t0=$(now_ms)
+  deadline=$((t0 + FIN_BUDGET_MS))
+  REAPED_WINE=0; REAPED_OTHER=0   # the start's reap of stale processes is not this exit's leak
+  if [ -n "$WSUPF" ] && [ -e "$WSUPF" ]; then
+    [ -z "$(ws_pids)" ] && say "WARN: the persistent wineserver was gone before the end (it died mid-session); games started wine's own"
+    rm -f "$WSUPF"
+  fi
+  # the background start (and the wineserver -p it is still launching) next: its whole process group
+  if [ -n "$WSSTART" ]; then
+    kill -KILL -- "-$WSSTART" 2>/dev/null
+    kill -KILL "$WSSTART" 2>/dev/null
+  fi
+  if [ -n "$EPID" ] && kill -0 "$EPID" 2>/dev/null; then
+    kill -TERM "$EPID" 2>/dev/null
+    while kill -0 "$EPID" 2>/dev/null && [ "$i" -lt 15 ] && [ "$(now_ms)" -lt "$deadline" ]; do sleep 0.1; i=$((i + 1)); done
+    kill -KILL "$EPID" 2>/dev/null
+  fi
+  [ -d "$HK_FC_SHM_PREFIX" ] && bounded 2 env WINEPREFIX="$HK_FC_SHM_PREFIX" "$HK_FC_BINDIR/wineserver" -k
+  # structure first (the scope, the session's coin-dojo-cleanup), then this proof. `wineserver -k` returns before its victims
+  # have exited: give them up to 1 s to go by themselves before anything counts as a leak (VM proof: a false alarm without
+  # this). Then scan -> TERM/KILL -> scan again, up to 3 rounds: a `wineserver -p` still starting forks its daemon with a
+  # new pid during the reap, so one pass is not enough.
+  i=0
+  while [ -n "$(wine_pids)" ] && [ "$(now_ms)" -lt $((t0 + 1500)) ]; do sleep 0.1; done
+  while [ "$round" -lt 3 ] && reap_wine "wine processes survived the mode's end (round $((round + 1)))" "$deadline"; do
+    round=$((round + 1))
+    sleep 0.1
+  done
+  left=$(wine_pids)
+  left=${left//$'\n'/ }
+  if [ -n "$left" ]; then
+    # shellcheck disable=SC2086
+    say "ERROR: leak: processes of this mode still running after $round reap round(s): $(describe_pids $left); the session's coin-dojo-cleanup ends them"
+  elif [ "$REAPED_WINE" = 1 ]; then
+    say "WARN: leak: Fightcade mode ended with wine/box64 processes alive (reaped above)"
+  elif [ "$REAPED_OTHER" = 1 ]; then
+    say "WARN: processes from this mode were still running at the end (not wine; reaped above)"
+  else
+    say "Fightcade mode ended: no wine processes left"
+  fi
+  clean_wine_sockets "$CUR_SOCK"
+  if [ "$STICK" = 1 ]; then bounded 1 "$HK_FC_SYSTEMCTL" --user stop --no-block "$HK_FC_STICKMOUSE"; fi
+  rm_prefix
+  say "finish took $(( $(now_ms) - t0 )) ms"
+}
+on_term() { TERMED=1; say "TERM: leaving Fightcade mode"; }
+trap finish EXIT
+trap on_term TERM INT HUP
+
+# --- 4. the X display (cage starts Xwayland for X11 clients) --------------------------------------------------------
+[ -n "${DISPLAY:-}" ] || fail 3 "no DISPLAY: this cage has no Xwayland (package xwayland; it starts with the next session)"
+
+# --- 5. the read-only RAM prefix ------------------------------------------------------------------------------------
+SHM_DIR=$(dirname "$HK_FC_SHM_PREFIX")
+mkdir -p "$SHM_DIR" 2>/dev/null
+[ -d "$SHM_DIR" ] && [ -w "$SHM_DIR" ] || fail 4 "$SHM_DIR is not writable: cannot build the RAM prefix $HK_FC_SHM_PREFIX"
+# #257: a wineserver (or anything wine) left by a crashed earlier run for this prefix is ended and its socket removed
+# BEFORE the prefix is rebuilt, so there is never a second wineserver and never a stale /tmp/.wine-<uid> socket.
+if reap_wine "stale wine processes from an earlier Fightcade mode"; then say "WARN: a previous Fightcade mode left wine processes (reaped)"; fi
+OLD_SOCK=$(sock_name "$HK_FC_SHM_PREFIX")   # the old prefix dir's wineserver socket, before the dir is removed
+clean_wine_sockets "$OLD_SOCK"
+rm_prefix
+[ -e "$HK_FC_SHM_PREFIX" ] && fail 4 "cannot remove the old RAM prefix $HK_FC_SHM_PREFIX"
+mkdir -p "$HK_FC_SHM_PREFIX/dosdevices" || fail 4 "cannot create $HK_FC_SHM_PREFIX"
+for f in "$HK_FC_PREFIX"/*.reg "$HK_FC_PREFIX/.update-timestamp"; do
+  [ -e "$f" ] || continue
+  cp -p "$f" "$HK_FC_SHM_PREFIX/" || fail 4 "cannot copy $f into the RAM prefix (is $SHM_DIR full?)"
+done
+ln -s "$HK_FC_PREFIX/drive_c" "$HK_FC_SHM_PREFIX/dosdevices/c:" || fail 4 "cannot link c: in the RAM prefix"
+ln -s / "$HK_FC_SHM_PREFIX/dosdevices/z:" || fail 4 "cannot link z: in the RAM prefix"
+chmod a-w "$HK_FC_SHM_PREFIX/dosdevices" "$HK_FC_SHM_PREFIX" || fail 4 "cannot make the RAM prefix read-only"
+CUR_SOCK=$(sock_name "$HK_FC_SHM_PREFIX")
+
+# --- 6. a fresh FBNeo ini (option B, Windows-form ROM paths) ---------------------------------------------------------
+INI_TMP="$HK_FC_INI.hk-new.$$"
+cp "$HK_FC_INI_BASE" "$INI_TMP" && mv -f "$INI_TMP" "$HK_FC_INI" || { rm -f "$INI_TMP"; fail 5 "cannot write $HK_FC_INI"; }
+
+# --- 7. environment: Wine/Box64 for the game the lobby starts (through fcade-url and `wine` on PATH) ---------------
+export WINEPREFIX="$HK_FC_SHM_PREFIX" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=d"
+export BOX64_LOG=0 BOX64_LD_LIBRARY_PATH="$HK_FC_BOX64_LIB" BOX64_RCFILE="$HK_FC_BOX64_RC"
+if [ "${HK_FC_BOX64_FAST:-0}" = 1 ]; then
+  for kv in ${HK_FC_BOX64_FAST_ENV[@]+"${HK_FC_BOX64_FAST_ENV[@]}"}; do export "${kv?}"; done
+  say "Box64 fast flags ON (hk_fightcade_box64_fast)"
+fi
+export PATH="$HK_FC_BINDIR:$PATH"
+# The game gets the cabinet's own (blank) cursor back; only Electron sees the visible theme.
+export HK_FC_GAME_XCURSOR_THEME="${XCURSOR_THEME:-}"
+
+# --- 7b. audio straight to one HDMI sink (#233) ----------------------------------------------------------------
+# The image's default sink is `combined` (module-combine-sink over both HDMI outputs, skills/build-image/scripts/
+# chroot-setup.sh:224); its rate adaptation made FBNeo's audio crackle (cabinet 2026-11-18, clean on the HDMI sink).
+# PULSE_SINK is libpulse's per-process default: Wine's default device connects with no sink name, so FBNeo follows it
+# (wine-10.0 dlls/winepulse.drv/pulse.c:1070-1077), and so do the lobby and fcade (they inherit this environment).
+# ES-DE and RetroArch keep the system default. HK_FC_AUDIO_SINK: auto | default | a sink name (hk_fightcade_audio_sink).
+# pactl runs at most 3 s (a hung daemon never holds up the lobby) and never autospawns a daemon: the image's
+# client.conf leaves autospawn at libpulse's default (yes; cabinet 2026-11-19 01:xx: "; autospawn = yes"), and a daemon
+# spawned here would live in this scope and die with it. pactl has no --no-autospawn switch; PULSE_CLIENTCONFIG points
+# libpulse at a one-line client.conf for these calls only.
+pactl_q() {
+  local pactl=${HK_FC_PACTL:-pactl} cfg="$SHM_DIR/hk-pactl-client.conf"
+  [ -f "$cfg" ] || printf 'autospawn = no\n' > "$cfg" 2>/dev/null || cfg=/dev/null
+  if command -v timeout >/dev/null 2>&1; then
+    LC_ALL=C PULSE_CLIENTCONFIG="$cfg" timeout 3 "$pactl" "$@"
+  else
+    LC_ALL=C PULSE_CLIENTCONFIG="$cfg" "$pactl" "$@"
+  fi
+}
+# One `pactl list sinks` (LC_ALL=C): its "Name:" lines are the sinks, alsa.card_name maps a sink to its card.
+pick_sink() {
+  local want=${HK_FC_AUDIO_SINK:-auto} list sinks hdmi n st conn="" card name
+  case "$want" in default | "") return 0 ;; esac
+  list=$(pactl_q list sinks 2>/dev/null)
+  sinks=$(printf '%s\n' "$list" | awk '/^[[:space:]]*Name: / { print $2 }')
+  if [ -z "$sinks" ]; then
+    say "WARN: audio: no PulseAudio sinks from ${HK_FC_PACTL:-pactl} (no daemon, or no answer in 3 s): Fightcade mode keeps the default sink"; return 0
+  fi
+  if [ "$want" != auto ]; then
+    if printf '%s\n' "$sinks" | grep -qxF -- "$want"; then echo "$want"
+    else say "WARN: audio: sink $want not found (hk_fightcade_audio_sink): Fightcade mode keeps the default sink"; fi
+    return 0
+  fi
+  hdmi=$(printf '%s\n' "$sinks" | grep -E '^alsa_output\..*hdmi' || true)
+  n=$(printf '%s' "$hdmi" | grep -c . || true)
+  if [ "$n" = 1 ]; then echo "$hdmi"; return 0; fi
+  if [ "$n" = 0 ]; then say "WARN: audio: no HDMI sink: Fightcade mode keeps the default sink"; return 0; fi
+  # Several HDMI sinks: the one connected connector, HDMI-A-N, is the ALSA card vc4-hdmi-(N-1) (cabinet 2026-11-19:
+  # card1-HDMI-A-2 connected, its sink has alsa.card_name "vc4-hdmi-1").
+  n=0
+  for st in "${HK_FC_DRM_DIR:-/sys/class/drm}"/card*-HDMI-A-*/status; do
+    [ -r "$st" ] && [ "$(cat "$st" 2>/dev/null)" = connected ] || continue
+    n=$((n + 1)); conn=${st%/status}; conn=${conn##*-HDMI-A-}
+  done
+  case "$n:$conn" in
+    1:[1-9]) ;;
+    *) say "WARN: audio: $n HDMI connectors connected, cannot pick one of the HDMI sinks (set hk_fightcade_audio_sink): Fightcade mode keeps the default sink"; return 0 ;;
+  esac
+  card="vc4-hdmi-$((conn - 1))"
+  name=$(printf '%s\n' "$list" | awk -v card="$card" '
+    /^[[:space:]]*Name: / { n = $2 }
+    /alsa\.card_name = / { v = $0; sub(/.*= "/, "", v); sub(/".*/, "", v); if (v == card) { print n; exit } }')
+  if [ -n "$name" ] && printf '%s\n' "$hdmi" | grep -qxF -- "$name"; then echo "$name"
+  else say "WARN: audio: no HDMI sink for $card (HDMI-A-$conn connected): Fightcade mode keeps the default sink"; fi
+}
+SINK=$(pick_sink)
+if [ -n "$SINK" ]; then
+  export PULSE_SINK="$SINK"
+  say "audio: PULSE_SINK=$SINK (the lobby and FBNeo; ES-DE and RetroArch keep the default sink)"
+fi
+
+# A TERM during the setup (the session's stop hook right after the start) ends here: no wineserver, no lobby.
+[ "$TERMED" = 1 ] && exit 143
+
+# --- 7c. persistent wineserver (#257) ------------------------------------------------------------------------------
+# `wineserver -p` right away, in the background and bounded, so the first game does not pay Wine's cold start (VM: wine's
+# first call 1156 ms vs 255 ms warm). Only here: the RAM prefix is ready, this IS Fightcade mode, and the stale ones were reaped
+# in step 5. It never delays the lobby and never fails the mode: if it does not come up, wine starts its own on demand
+# (the old behaviour) and the journal says so. It lives in this scope (cgroup), is ended by `wineserver -k` + reap_wine
+# in finish(), and by the session's coin-dojo-cleanup after the mode. HK_FC_WINESERVER_PERSIST=0 turns it off.
+if [ "${HK_FC_WINESERVER_PERSIST:-1}" = 1 ]; then
+  WSUPF="$SHM_DIR/hk-fc-wsup.$$"
+  set -m   # job control: the background start gets its own process group, finish() kills the whole group
+  (
+    bounded 3 "$HK_FC_BINDIR/wineserver" -p
+    i=0
+    while [ -z "$(ws_pids)" ] && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
+    n=$(ws_pids | wc -l | tr -d ' ')
+    if [ "$n" = 1 ]; then : > "$WSUPF"; say "persistent wineserver up (pid $(ws_pids), $((i * 100)) ms after the start)"
+    elif [ "$n" = 0 ]; then say "WARN: persistent wineserver did not come up in 3 s: the first game starts wine's own (slower)"
+    else say "WARN: $n wineservers for one prefix ($(ws_pids | tr '\n' ' ')): keeping the oldest"
+      for p in $(ws_pids | sort -n | sed 1d); do kill -TERM "$p" 2>/dev/null; done
+    fi
+  ) &
+  WSSTART=$!
+  set +m
+fi
+
+# No X screen saver and no DPMS while in Fightcade mode (a lobby wait can be long; #204).
+if command -v xset >/dev/null 2>&1; then xset s off s noblank -dpms >/dev/null 2>&1 || say "WARN: xset failed"; fi
+
+# --- 8. stick-as-mouse (#211), when installed ---------------------------------------------------------------------
+if "$HK_FC_SYSTEMCTL" --user cat "$HK_FC_STICKMOUSE" >/dev/null 2>&1; then
+  if "$HK_FC_SYSTEMCTL" --user start --no-block "$HK_FC_STICKMOUSE" >/dev/null 2>&1; then STICK=1
+  else say "WARN: could not start $HK_FC_STICKMOUSE"; fi
+fi
+
+[ "$TERMED" = 1 ] && exit 143
+
+# --- 9. the lobby ---------------------------------------------------------------------------------------------------
+mkdir -p "$HK_FC_LOGS" 2>/dev/null
+[ -f "$HK_FC_LOGS/lobby.log" ] && mv -f "$HK_FC_LOGS/lobby.log" "$HK_FC_LOGS/lobby.log.1"
+cd "$HK_FC_TREE/fc2-electron" || fail 2 "missing artifact: $HK_FC_TREE/fc2-electron"
+say "lobby: $HK_FC_ELECTRON (profile $HK_FC_PROFILE, prefix $HK_FC_SHM_PREFIX read-only)"
+# --no-sandbox: with Chromium's sandbox Electron 9 aborts here ("GPU process isn't usable", test VM 2026-11-18);
+# the lobby runs as coindojo only (refused as root above). Links outside Fightcade's two origins (nativefier.json
+# internalUrls) do not load in the lobby: nativefier hands them to shell.openExternal = xdg-open, any scheme
+# (fcade:// is how a match starts; see fightcade_nativefier_keys in the role defaults).
+XCURSOR_THEME="$HK_FC_CURSOR" "$HK_FC_ELECTRON" --no-sandbox --user-data-dir="$HK_FC_PROFILE" \
+  ${HK_FC_ELECTRON_FLAGS[@]+"${HK_FC_ELECTRON_FLAGS[@]}"} "$HK_FC_APP" \
+  >> "$HK_FC_LOGS/lobby.log" 2>&1 &
+EPID=$!
+[ "$TERMED" = 1 ] && exit 143   # a TERM between the last check and the wait (#257)
+rc=0
+wait "$EPID" || rc=$?
+if [ "$TERMED" = 1 ]; then exit 143; fi
+EPID=""
+say "lobby closed (rc $rc)"
+exit "$rc"

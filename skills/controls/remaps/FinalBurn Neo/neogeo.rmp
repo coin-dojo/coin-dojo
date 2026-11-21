@@ -1,0 +1,15 @@
+# Neo Geo on the panel (#57): A B C on the top row (Jab Strong Fierce), D on Short. Content-dir remap: only
+# games under /data/roms/neogeo. FBNeo Classic retropad: Fire1..4 = RetroPad B(0) A(8) Y(1) X(9).
+# Forward (RetroPad A) -> L2 (12) = an unused FBNeo column; Roundhouse (R) = Fire5, unused on Neo Geo.
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "1"
+input_player1_btn_y = "0"
+input_player1_btn_x = "8"
+input_player1_btn_l = "1"
+input_player1_btn_b = "9"
+input_player1_btn_a = "12"
+input_player2_btn_y = "0"
+input_player2_btn_x = "8"
+input_player2_btn_l = "1"
+input_player2_btn_b = "9"
+input_player2_btn_a = "12"

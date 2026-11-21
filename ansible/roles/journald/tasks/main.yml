@@ -1,0 +1,70 @@
+# journald: persistent, size-capped systemd journal on the Debian cabinet. Restarts only journald,
+# only when the drop-in or the journal dir changed; never ES-DE or the cabinet.
+# Revert: delete /etc/systemd/journald.conf.d/50-coin-dojo.conf, `sudo systemctl restart systemd-journald`
+# (the Pi OS default Storage=volatile is back; /var/log/journal can then be removed by hand).
+
+- name: Journald drop-in dir
+  ansible.builtin.file:
+    path: "{{ journald_dropin_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Persistent, size-capped journal drop-in
+  ansible.builtin.template:
+    src: 50-coin-dojo.conf.j2
+    dest: "{{ journald_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  become: true
+  notify: restart journald
+
+# Same owner/mode systemd's tmpfiles.d/systemd.conf sets, so this never fights tmpfiles.
+- name: Persistent journal dir exists (root:systemd-journal, setgid)
+  ansible.builtin.file:
+    path: "{{ journald_dir }}"
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+  become: true
+  register: journald_dir_result
+  notify: restart journald
+
+# Group + ACLs (adm/wheel read access) as systemd ships them. Idempotent; skipped in check mode.
+- name: Apply systemd's tmpfiles rules to the journal dir (group, ACL)
+  ansible.builtin.command: systemd-tmpfiles --create --prefix {{ journald_dir }}
+  become: true
+  changed_when: false
+
+- name: Restart journald now if the config changed
+  ansible.builtin.meta: flush_handlers
+
+# ---- verify (apply only) -------------------------------------------------------------------------
+- name: Effective journald config
+  ansible.builtin.command: systemd-analyze cat-config systemd/journald.conf
+  become: true
+  register: journald_effective
+  changed_when: false
+  when: not ansible_check_mode
+
+# cat-config prints the drop-ins in the order journald applies them: the last Storage= wins.
+- name: Assert the last Storage= is persistent
+  ansible.builtin.assert:
+    that:
+      - (journald_effective.stdout | regex_findall('(?m)^Storage=(\\S+)') | last) == 'persistent'
+    fail_msg: "another journald drop-in sorts after {{ journald_dropin }} and overrides Storage="
+    quiet: true
+  when: not ansible_check_mode
+
+- name: Journal files now land under <machine-id> in {{ journald_dir }}
+  ansible.builtin.stat:
+    path: "{{ journald_dir }}/{{ ansible_machine_id }}"
+  become: true
+  register: journald_machine_dir
+  failed_when: not journald_machine_dir.stat.exists
+  when: not ansible_check_mode and not coin_dojo_image | default(false) | bool   # #244: an image has no machine id yet

@@ -1,0 +1,195 @@
+# power: double-press power button confirm (#25), run as a systemd service since #44. Nothing here
+# restarts the cage/ES-DE session. Revert: systemctl disable --now coin-dojo-powerd, delete the unit,
+# and re-add the old nohup line to .bash_profile (see the ticket #44 report).
+
+- name: Create the launcher dir
+  ansible.builtin.file:
+    path: "{{ power_dir }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+
+# overlay.py (#66): the primed native 'Shut down?' overlay that powerd imports; shutdown.html stays
+# as the cog fallback. A changed file restarts powerd (it never restarts the cage/ES-DE session).
+- name: Ship powerd.py, the native overlay and the fallback overlay page
+  ansible.builtin.copy:
+    src: "{{ item.name }}"
+    dest: "{{ power_dir }}/{{ item.name }}"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "{{ item.mode }}"
+  become: true
+  loop:
+    - { name: powerd.py, mode: "0755" }
+    - { name: overlay.py, mode: "0644" }
+    - { name: shutdown.html, mode: "0644" }
+  loop_control:
+    label: "{{ item.name }}"
+  notify: restart powerd
+
+# Drop-in, not an edit of logind.conf (which stays the distro file).
+- name: Logind drop-in dir
+  ansible.builtin.file:
+    path: "{{ power_logind_dropin | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Logind ignores the power key (powerd.py decides)
+  ansible.builtin.copy:
+    dest: "{{ power_logind_dropin }}"
+    content: |
+      [Login]
+      HandlePowerKey=ignore
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: reload logind
+
+# #66: a hung process may hold the poweroff for 15 s at most, not 90 s / 2 min.
+- name: Systemd drop-in dirs for the stop timeout
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  loop:
+    - "{{ power_system_dropin | dirname }}"
+    - "{{ power_user_unit_dropin | dirname }}"
+
+- name: Cap stop timeouts (system manager default + the user manager unit)
+  ansible.builtin.copy:
+    dest: "{{ item.dest }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  loop:
+    - dest: "{{ power_system_dropin }}"
+      content: |
+        # Managed by Ansible (role power, #66). Was 90 s.
+        [Manager]
+        DefaultTimeoutStopSec={{ power_stop_timeout }}
+    - dest: "{{ power_user_unit_dropin }}"
+      content: |
+        # Managed by Ansible (role power, #66). user@.service ships 120 s.
+        [Service]
+        TimeoutStopSec={{ power_stop_timeout }}
+  loop_control:
+    label: "{{ item.dest }}"
+  notify: reload systemd
+
+# Only `systemctl poweroff`. validate refuses to install a file visudo rejects (a bad sudoers file
+# would lock sudo out for everyone).
+- name: Sudoers rule - coindojo may run systemctl poweroff, nothing else
+  ansible.builtin.copy:
+    dest: "{{ power_sudoers_file }}"
+    content: "{{ power_sudoers_line }}\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+  become: true
+
+# Legacy: the old nohup line re-spawned a second copy on every login and never restarted a dead one.
+- name: Remove the powerd start line from .bash_profile (replaced by the systemd unit)
+  ansible.builtin.lineinfile:
+    path: "{{ power_bash_profile }}"
+    regexp: 'powerd\.py'
+    state: absent
+  become: true
+
+- name: Install the powerd systemd unit
+  ansible.builtin.template:
+    src: coin-dojo-powerd.service.j2
+    dest: "{{ power_unit_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: restart powerd
+
+# The old nohup daemon (if still running) must be gone before the unit starts, or two daemons
+# would both react to a press: see the rollout steps. The role does not pkill (it cannot tell the
+# two apart by name).
+# #244 image build: enabled only (a chroot runs no systemd); it starts at the image's first boot.
+- name: Enable powerd at boot and start it
+  ansible.builtin.systemd:
+    name: "{{ power_unit_name }}"
+    enabled: true
+    state: "{{ omit if coin_dojo_image | default(false) | bool else 'started' }}"
+    daemon_reload: "{{ not coin_dojo_image | default(false) | bool }}"
+  become: true
+
+# ---- stickmouse (#211): evdev -> uinput pointer for the Fightcade lobby, a user unit coin-dojo-fightcade starts.
+# Nothing here starts or enables it, and nothing restarts the cage/ES-DE session.
+- name: Ship stickmouse.py
+  ansible.builtin.copy:
+    src: stickmouse.py
+    dest: "{{ power_dir }}/stickmouse.py"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+  notify: restart stickmouse
+
+- name: User unit dir (root-owned, system wide)
+  ansible.builtin.file:
+    path: "{{ stickmouse_unit_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Install the stickmouse user unit (not enabled; coin-dojo-fightcade starts it)
+  ansible.builtin.template:
+    src: coin-dojo-stickmouse.service.j2
+    dest: "{{ stickmouse_unit_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify:
+    - reload user systemd
+    - restart stickmouse
+
+- name: The input group may use /dev/uinput (stickmouse writes the pointer there)
+  ansible.builtin.copy:
+    dest: "{{ stickmouse_uinput_rule_file }}"
+    content: |
+      # Managed by coin-dojo ansible power (#211): the Fightcade stick-pointer writes through /dev/uinput.
+      {{ stickmouse_uinput_rule }}
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: stickmouse_uinput_rule_copy
+
+- name: Load the uinput module at every boot
+  ansible.builtin.copy:
+    dest: "{{ stickmouse_uinput_modules_file }}"
+    content: |
+      # Managed by coin-dojo ansible power (#211): stickmouse needs /dev/uinput.
+      uinput
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: stickmouse_uinput_module_copy
+
+- name: Load uinput and apply the rule now (no reboot)
+  ansible.builtin.shell:
+    cmd: modprobe uinput && udevadm control --reload-rules && udevadm trigger --action=change --sysname-match=uinput && udevadm settle
+  become: true
+  changed_when: true
+  when: (stickmouse_uinput_rule_copy is changed or stickmouse_uinput_module_copy is changed) and not ansible_check_mode
+        and not coin_dojo_image | default(false) | bool   # #244 image: modules-load.d + udev apply at the first boot

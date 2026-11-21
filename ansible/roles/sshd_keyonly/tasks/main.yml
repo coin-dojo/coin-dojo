@@ -1,0 +1,240 @@
+# sshd_keyonly (#41): turn off password + keyboard-interactive SSH on the Debian cabinet.
+#
+# Lockout guards, in order (the role stops before touching sshd if any pre-check fails):
+#   1. the deploying key is in ~coindojo/.ssh/authorized_keys      (assert, before any write)
+#   2. sshd -t validates the drop-in and the FULL config          (before the reload)
+#   3. sshd is RELOADED, never restarted: open sessions (incl. Ansible's ControlPersist master) survive
+#   4. a NEW key-only ssh connection must succeed after the reload, else the rescue restores the
+#      backed-up drop-ins, re-validates, reloads, and fails the run.
+# Revert by hand: copy the files from /etc/ssh/coin-dojo-backup/<ts>-sshd_keyonly/ back into
+# /etc/ssh/sshd_config.d/, delete 00-coin-dojo-keyonly.conf, `sudo sshd -t && sudo systemctl reload ssh`.
+
+# ---- 1. pre-checks (read-only) ----------------------------------------------------------------
+- name: Read the deploying public key (control node)
+  ansible.builtin.set_fact:
+    sshd_keyonly_pub_blob: "{{ (lookup('ansible.builtin.file', (sshd_keyonly_private_key | expanduser) ~ '.pub')).split()[1] }}"
+
+- name: Read authorized_keys on the cabinet
+  ansible.builtin.slurp:
+    src: "{{ sshd_keyonly_authorized_keys }}"
+  register: sshd_keyonly_ak
+
+- name: Assert the deploying key is authorized (else key-only would lock us out)
+  ansible.builtin.assert:
+    that:
+      - sshd_keyonly_pub_blob in (sshd_keyonly_ak.content | b64decode)
+    fail_msg: >-
+      LOCKOUT GUARD: {{ sshd_keyonly_private_key }}.pub is not in {{ sshd_keyonly_authorized_keys }}.
+      Nothing was changed. Add the key first, then re-run.
+    quiet: true
+
+- name: Sshd runs as ssh.service (reload target), not socket-activated
+  ansible.builtin.command: systemctl is-active {{ sshd_keyonly_service }}.service
+  register: sshd_keyonly_active
+  changed_when: false
+  failed_when: sshd_keyonly_active.stdout != "active"
+  check_mode: false
+
+- name: Current sshd config is valid before we touch it (sshd -t)
+  ansible.builtin.command: "{{ sshd_keyonly_sshd }} -t"
+  become: true
+  changed_when: false
+  check_mode: false
+
+# #299: a community cabinet whose owner set their own password has password SSH for the cabinet user only
+# (coindojo-firstboot's 10-coindojo-owner-ssh.conf, a Match User block). The role leaves it alone and accepts
+# `passwordauthentication yes` for that user only while that file exists; everything else stays key-only.
+- name: Owner password SSH drop-in (#299, written on the cabinet once the owner set their own password)
+  ansible.builtin.stat:
+    path: "{{ sshd_keyonly_owner_dropin }}"
+  register: sshd_keyonly_owner
+
+- name: Look for existing drop-ins to back up
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ sshd_keyonly_dropin }}"
+    - "{{ sshd_keyonly_legacy }}"
+  register: sshd_keyonly_pre
+
+# Idempotent (#122): the backup is only taken when the block below WILL change something: the drop-in is
+# missing or differs from the shipped file, or the legacy drop-in is still there. Same on a check run.
+- name: Will the drop-ins change? (decides whether to back up)
+  ansible.builtin.set_fact:
+    sshd_keyonly_will_change: >-
+      {{ (not sshd_keyonly_pre.results[0].stat.exists)
+         or (sshd_keyonly_pre.results[0].stat.checksum | default('')) != (lookup('ansible.builtin.file', 'files/00-coin-dojo-keyonly.conf', rstrip=False) | hash('sha1'))
+         or sshd_keyonly_pre.results[1].stat.exists }}
+
+# ---- backup (outside sshd_config.d) -----------------------------------------------------------
+- name: Backup dir
+  ansible.builtin.file:
+    path: "{{ sshd_keyonly_backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+  when: sshd_keyonly_will_change | bool
+
+- name: Back up the drop-ins we will replace or remove
+  ansible.builtin.copy:
+    src: "{{ item.stat.path }}"
+    dest: "{{ sshd_keyonly_backup_dir }}/{{ item.stat.path | basename }}"
+    remote_src: true
+    mode: preserve
+  become: true
+  loop: "{{ sshd_keyonly_pre.results | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.stat.path }}"
+  when: not ansible_check_mode and (sshd_keyonly_will_change | bool)
+
+# ---- 2-4. change, validate, reload, prove; revert on any failure -------------------------------
+- name: Apply key-only sshd with rollback
+  block:
+    - name: Install the key-only drop-in (validated on its own with sshd -t)
+      ansible.builtin.copy:
+        src: 00-coin-dojo-keyonly.conf
+        dest: "{{ sshd_keyonly_dropin }}"
+        owner: root
+        group: root
+        mode: "0644"
+        validate: "{{ sshd_keyonly_sshd }} -t -f %s"
+      become: true
+      register: sshd_keyonly_dropin_result
+
+    - name: Remove the legacy PasswordAuthentication-yes drop-in
+      ansible.builtin.file:
+        path: "{{ sshd_keyonly_legacy }}"
+        state: absent
+      become: true
+      register: sshd_keyonly_legacy_result
+
+    - name: Validate the FULL sshd config before reload (sshd -t)
+      ansible.builtin.command: "{{ sshd_keyonly_sshd }} -t"
+      become: true
+      changed_when: false
+
+    # Effective values after all drop-ins and Match blocks: catches another file that sorts first.
+    - name: Effective sshd settings (sshd -T)
+      ansible.builtin.command: "{{ sshd_keyonly_sshd }} -T -C {{ sshd_keyonly_match_spec }}"
+      become: true
+      register: sshd_keyonly_effective
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Assert passwords and keyboard-interactive are off, keys on
+      ansible.builtin.assert:
+        that:
+          - "'passwordauthentication no' in sshd_keyonly_effective.stdout_lines or sshd_keyonly_owner.stat.exists"
+          - "'kbdinteractiveauthentication no' in sshd_keyonly_effective.stdout_lines"
+          - "'pubkeyauthentication yes' in sshd_keyonly_effective.stdout_lines"
+        fail_msg: "effective sshd config is not key-only (another drop-in or Match block wins?)"
+        quiet: true
+      when: not ansible_check_mode
+
+    - name: Reload sshd (reload, NOT restart - existing sessions survive)
+      ansible.builtin.systemd:
+        name: "{{ sshd_keyonly_service }}"
+        state: reloaded
+      become: true
+      when: sshd_keyonly_dropin_result is changed or sshd_keyonly_legacy_result is changed
+
+    # A brand-new connection: no ControlMaster reuse, no ~/.ssh/config, only the deploy key.
+    - name: Post-check - a NEW key-based ssh connection still works
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -F
+          - /dev/null
+          - -o
+          - BatchMode=yes
+          - -o
+          - ControlMaster=no
+          - -o
+          - ControlPath=none
+          - -o
+          - IdentitiesOnly=yes
+          - -o
+          - PreferredAuthentications=publickey
+          - -o
+          - StrictHostKeyChecking=accept-new
+          - -o
+          - ConnectTimeout=8
+          - -i
+          - "{{ sshd_keyonly_private_key | expanduser }}"
+          - -p
+          - "{{ sshd_keyonly_check_port }}"
+          - "{{ sshd_keyonly_check_user }}@{{ sshd_keyonly_check_host }}"
+          - "true"
+      delegate_to: localhost
+      become: false
+      register: sshd_keyonly_newconn
+      retries: 3
+      delay: 2
+      until: sshd_keyonly_newconn.rc == 0
+      changed_when: false
+      when: not ansible_check_mode
+
+  rescue:
+    - name: ROLLBACK - restore backed-up drop-ins
+      ansible.builtin.copy:
+        src: "{{ sshd_keyonly_backup_dir }}/{{ item.stat.path | basename }}"
+        dest: "{{ item.stat.path }}"
+        remote_src: true
+        mode: preserve
+      become: true
+      loop: "{{ sshd_keyonly_pre.results | selectattr('stat.exists') | list }}"
+      loop_control:
+        label: "{{ item.stat.path }}"
+      when: sshd_keyonly_will_change | bool   # no backup was taken when nothing was going to change
+
+    - name: ROLLBACK - remove our drop-in if it did not exist before
+      ansible.builtin.file:
+        path: "{{ sshd_keyonly_dropin }}"
+        state: absent
+      become: true
+      when: not sshd_keyonly_pre.results[0].stat.exists
+
+    - name: ROLLBACK - validate the restored config (sshd -t)
+      ansible.builtin.command: "{{ sshd_keyonly_sshd }} -t"
+      become: true
+      changed_when: false
+
+    - name: ROLLBACK - reload sshd
+      ansible.builtin.systemd:
+        name: "{{ sshd_keyonly_service }}"
+        state: reloaded
+      become: true
+
+    - name: ROLLBACK - stop the run
+      ansible.builtin.fail:
+        msg: >-
+          sshd_keyonly reverted to the backed-up drop-ins ({{ sshd_keyonly_backup_dir }}):
+          {{ ansible_failed_task.name | default('a step') }} failed.
+
+# ---- verify: the server no longer offers password or keyboard-interactive ------------------------
+# PreferredAuthentications=none makes the server list the methods it would accept, without ever
+# sending a password; expected line: "Authentications that can continue: publickey".
+- name: Ask the server which auth methods it offers (no password sent)
+  ansible.builtin.command:
+    argv: [ssh, -v, -F, /dev/null, -o, BatchMode=yes, -o, ControlMaster=no, -o, ControlPath=none,
+           -o, PubkeyAuthentication=no, -o, PreferredAuthentications=none, -o, ConnectTimeout=8,
+           -o, StrictHostKeyChecking=accept-new, -p, "{{ sshd_keyonly_check_port }}",
+           "{{ sshd_keyonly_check_user }}@{{ sshd_keyonly_check_host }}", "true"]
+  delegate_to: localhost
+  become: false
+  register: sshd_keyonly_methods
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+
+- name: Assert password + keyboard-interactive are refused
+  ansible.builtin.assert:
+    that:
+      - sshd_keyonly_methods.rc != 0
+      - "'Authentications that can continue: publickey' in sshd_keyonly_methods.stderr"
+      - sshd_keyonly_owner.stat.exists or sshd_keyonly_methods.stderr is not search('Authentications that can continue:.*password')
+      - sshd_keyonly_methods.stderr is not search('Authentications that can continue:.*keyboard-interactive')
+    fail_msg: "server still offers password/keyboard-interactive SSH"
+  when: not ansible_check_mode

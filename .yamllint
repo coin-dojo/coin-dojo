@@ -1,0 +1,17 @@
+---
+# yamllint for coin-dojo (make lint runs `yamllint -s`: warnings fail too).
+extends: default
+rules:
+  document-start: disable          # only some files use '---'
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false              # workflow files use the key `on:`
+  comments:
+    min-spaces-from-content: 1
+  line-length:
+    max: 280                       # long descriptive one-line comments/commands (longest today 274)
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1           # house style: `{ a: b }` flow maps (192 existing, all consistent)
+  indentation:
+    indent-sequences: consistent

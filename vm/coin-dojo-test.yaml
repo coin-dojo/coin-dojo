@@ -1,0 +1,71 @@
+# coin-dojo-vm (#82): a throwaway Debian 13 arm64 VM on the Mac (lima, Apple vz) that runs the cabinet's
+# software stack (cage -> ES-DE -> RetroArch) on llvmpipe, provisioned by ansible (vm.yml).
+# It is a VM, never the cabinet: host name coin-dojo-vm, reached only on 127.0.0.1 / host.lima.internal.
+#
+#   make vm-up | vm-provision | vm-smoke | vm-watch | vm-ssh | vm-status | vm-down | vm-destroy
+#
+# Sizing (the maintainer: the MacBook stays under 80% CPU; Colima runs beside it): 4 CPU / 4 GiB / 20 GiB.
+# Software GPU only: Apple's virtualization gives Linux guests no 3D, so Mesa llvmpipe renders everything.
+minimumLimaVersion: 2.0.0
+
+vmType: vz
+arch: aarch64
+cpus: 4
+memory: 4GiB
+disk: 20GiB
+
+# Official Debian cloud image, pinned to one dated build (https, sha512 from that build's SHA512SUMS).
+# Bump: pick a newer dir under https://cloud.debian.org/images/cloud/trixie/, copy its arm64 qcow2 line.
+# vm/tests/test_vm.py checks the pin (https, cloud.debian.org, dated dir, 128-hex sha512).
+images:
+- location: "https://cloud.debian.org/images/cloud/trixie/20261111-2659/debian-13-genericcloud-arm64-20261111-2659.qcow2"
+  arch: "aarch64"
+  digest: "sha512:4a166ab9a73f27857896b799dff913199ea982e2379889340e60734ba43bea83840c1317f6257a9a8ca466b2293862181a597edc5cdb5d19d4cb704a85b4130a"
+
+# No host folders inside the VM: Ansible copies what it needs over SSH.
+mounts: []
+
+# The VM's login is the cabinet's (hk_cabinet_user, hk_cabinet_uid, hk_cabinet_home: XDG_RUNTIME_DIR=/run/user/<uid> like
+# the cabinet). `make vm-up` overrides these neutral values from the configuration when it creates the VM (mk/vm.mk).
+user:
+  name: cabinet
+  uid: 1000
+
+ssh:
+  # Fixed TCP port on the Mac's 127.0.0.1 (not vsock): the Ansible container reaches it as
+  # host.lima.internal:60124 (inventory/vm.yml). Must match mk/vm.mk VM_SSH_PORT.
+  localPort: 60124
+  overVsock: false
+  # ~/.ssh/*.pub is authorized (on this Mac: only id_ed25519.pub, the key bin/ans mounts).
+  loadDotSSHPubKeys: true
+  forwardAgent: false
+  forwardX11: false
+
+containerd:
+  system: false
+  user: false
+
+video:
+  display: none
+
+# Only the wayvnc port is forwarded, and only to the Mac's loopback (make vm-watch). Never 0.0.0.0:
+# wayvnc runs without a password because nothing off this Mac can reach it.
+portForwards:
+- guestPort: 5900
+  hostIP: "127.0.0.1"
+  hostPort: 5924
+- guestPortRange: [1, 65535]
+  guestIP: "0.0.0.0"
+  proto: any
+  ignore: true
+
+# Runs as root on every boot (idempotent). The host name never says "coin-dojo" alone, so a play
+# can tell the VM from the cabinet (vm.yml asserts ansible_hostname == coin-dojo-vm).
+provision:
+- mode: system
+  script: |
+    #!/bin/sh
+    set -eu
+    printf 'preserve_hostname: true\n' > /etc/cloud/cloud.cfg.d/99-coin-dojo-vm.cfg
+    hostnamectl set-hostname coin-dojo-vm
+    grep -q 'coin-dojo-vm' /etc/hosts || printf '127.0.1.1 coin-dojo-vm\n' >> /etc/hosts

@@ -1,0 +1,322 @@
+# dreamcast: Dreamcast/Naomi/Atomiswave via standalone flycast (replaces the libretro core, which
+# cannot render 3D on the Pi 5). Reproduces the 2026-11-14 hand setup. Needs the 4 KB-page kernel
+# (role cabinet_tweaks) or flycast's JIT crashes with errno 22.
+# Ship-no-artifacts: the flycast binary comes from a local build path, BIOS are symlinks only.
+
+- name: Install flycast runtime libraries
+  ansible.builtin.apt:
+    name: "{{ dreamcast_apt_packages }}"
+    state: present
+    update_cache: false
+  become: true
+
+- name: Create the flycast dir
+  ansible.builtin.file:
+    path: "{{ dreamcast_dir }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+
+- name: Look for the local flycast build
+  ansible.builtin.stat:
+    path: "{{ dreamcast_flycast_binary_src }}"
+  delegate_to: localhost
+  become: false
+  register: dreamcast_binary_stat
+
+- name: Copy the flycast binary (from the local build, never from git)
+  ansible.builtin.copy:
+    src: "{{ dreamcast_flycast_binary_src }}"
+    dest: "{{ dreamcast_dir }}/flycast"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+  when: dreamcast_binary_stat.stat.exists
+
+- name: Warn when no local build exists
+  ansible.builtin.debug:
+    msg: >-
+      WARN {{ dreamcast_flycast_binary_src }} not found; flycast binary NOT deployed. Build it
+      (build/flycast) or set dreamcast_flycast_binary_src.
+  when: not dreamcast_binary_stat.stat.exists
+
+# #179: the per-game heights land in a shell `case` in flycast-run.sh: plain names and whole numbers only.
+- name: Per-game flycast heights are plain ROM names with a height of 240-2160
+  ansible.builtin.assert:
+    that:
+      - item.key is match('^[A-Za-z0-9 ._()&+,!-]{1,120}$')
+      - item.value | string is match('^[0-9]+$')
+      - item.value | int >= 240 and item.value | int <= 2160
+    fail_msg: "hk_flycast_resolution_by_game: {{ item.key | string | truncate(60) }} -> {{ item.value | string | truncate(20) }} is not a plain ROM name with a height of 240-2160"
+    quiet: true
+  loop: "{{ dreamcast_resolution_by_game | dict2items }}"
+  loop_control:
+    label: "{{ item.key | string | truncate(60) }}"
+
+# flycast-run.sh is a template: the runtime dir is /run/user/<hk_cabinet_uid>, the install dir is dreamcast_dir.
+- name: Ship the launcher (flycast-run.sh, from the template)
+  ansible.builtin.template:
+    src: flycast-run.sh.j2
+    dest: "{{ dreamcast_dir }}/flycast-run.sh"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+
+- name: Ship the pad hotkey watcher (Select+Start quits, Start+MP = flycast menu)
+  ansible.builtin.copy:
+    src: flycast-exit-combo.py
+    dest: "{{ dreamcast_dir }}/flycast-exit-combo.py"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+
+- name: The input group may use /dev/uinput, the watcher types flycast's menu key (#101)
+  ansible.builtin.copy:
+    dest: "{{ dreamcast_uinput_rule_file }}"
+    content: |
+      # Managed by coin-dojo ansible dreamcast (#101): flycast's Start+MP menu key comes from a uinput keyboard.
+      {{ dreamcast_uinput_rule }}
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: dreamcast_uinput_rule_copy
+
+- name: Load the uinput module at every boot (#173)
+  ansible.builtin.copy:
+    dest: "{{ dreamcast_uinput_modules_file }}"
+    content: |
+      # Managed by coin-dojo ansible dreamcast (#173): the Start+MP menu key needs /dev/uinput with its udev rule.
+      uinput
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: dreamcast_uinput_module_copy
+
+- name: Load uinput and apply the rule now (no reboot)
+  ansible.builtin.shell:
+    cmd: modprobe uinput && udevadm control --reload-rules && udevadm trigger --action=change --sysname-match=uinput && udevadm settle
+  become: true
+  changed_when: true
+  when: (dreamcast_uinput_rule_copy is changed or dreamcast_uinput_module_copy is changed) and not ansible_check_mode
+        and not coin_dojo_image | default(false) | bool   # #244 image: modules-load.d + udev apply at the first boot
+
+- name: Create flycast's data dir
+  ansible.builtin.file:
+    path: "{{ dreamcast_data_dir }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+
+- name: Link BIOS into flycast's data dir (links only, BIOS never in git)
+  ansible.builtin.file:
+    src: "{{ dreamcast_bios_dir }}/{{ item }}"
+    dest: "{{ dreamcast_data_dir }}/{{ item }}"
+    state: link
+    # #244: a new image has no BIOS yet: its links wait for the files the owner drops into the BIOS dir
+    force: "{{ coin_dojo_image | default(false) | bool }}"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+  become: true
+  loop: "{{ dreamcast_bios_files }}"
+
+- name: Create flycast's config dir
+  ansible.builtin.file:
+    path: "{{ dreamcast_emu_cfg | dirname }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+
+# #189 the cabinet wins: benchmark mode set in the SETTINGS app overrides hk_benchmark_mode (rend.ShowFPS below).
+# #197 the file is the cabinet user's: read it as that user (a symlink cannot make root read for it), never
+# logged, and parsed by the one shared filter (ansible/filter_plugins/hk_settings_state.py).
+- name: SETTINGS app state (read as the cabinet user, never logged; missing is fine)
+  ansible.builtin.slurp:
+    src: "{{ dreamcast_settings_state }}"
+  register: dreamcast_settings_state_file
+  failed_when: false
+  become: true
+  become_user: "{{ cabinet_user }}"
+  no_log: true
+
+- name: SETTINGS app state parsed (real JSON booleans only; anything else is not set, the hk_* default stays)
+  ansible.builtin.set_fact:
+    dreamcast_settings_app: "{{ dreamcast_settings_state_file | hk_settings_state }}"
+
+- name: Benchmark mode from the SETTINGS app when it set one
+  ansible.builtin.set_fact:
+    dreamcast_benchmark: "{{ dreamcast_settings_app.benchmark_mode }}"
+  when: "'benchmark_mode' in dreamcast_settings_app"
+
+# #171 the cabinet wins: RetroAchievements on/off + hardcore set in the SETTINGS app override hk_cheevos_*; its login
+# (logged in or out there) means UserName and Token below are skipped.
+- name: RetroAchievements on/off from the SETTINGS app when it set one
+  ansible.builtin.set_fact:
+    dreamcast_cheevos_enable: "{{ dreamcast_settings_app.cheevos_enable }}"
+  when: "'cheevos_enable' in dreamcast_settings_app"
+
+- name: RetroAchievements hardcore from the SETTINGS app when it set one
+  ansible.builtin.set_fact:
+    dreamcast_cheevos_hardcore: "{{ dreamcast_settings_app.cheevos_hardcore }}"
+  when: "'cheevos_hardcore' in dreamcast_settings_app"
+
+- name: RetroAchievements login owned by the SETTINGS app when it logged in or out
+  ansible.builtin.set_fact:
+    dreamcast_cheevos_app_login: true
+  when: "'cheevos_login' in dreamcast_settings_app"
+
+- name: Dir for the SETTINGS app's files
+  ansible.builtin.file:
+    path: "{{ dreamcast_benchmark_keys_file | dirname }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0700"
+  become: true
+
+- name: Benchmark keys for the SETTINGS app (rend.ShowFPS on/off; ticket 189)
+  ansible.builtin.copy:
+    dest: "{{ dreamcast_benchmark_keys_file }}"
+    content: "{{ dreamcast_benchmark_keys | to_nice_json }}\n"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+  become: true
+
+# community.general.ini_file edits single keys in place and leaves everything else flycast wrote.
+- name: Set the emu.cfg keys we care about
+  community.general.ini_file:
+    path: "{{ dreamcast_emu_cfg }}"
+    section: "{{ item.section }}"
+    option: "{{ item.key }}"
+    value: "{{ item.value }}"
+    no_extra_spaces: false
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0600"
+  become: true
+  loop: "{{ dreamcast_emu_settings }}"
+  loop_control:
+    label: "{{ item.section }}.{{ item.key }}={{ item.value }}"
+
+- name: RetroAchievements user name in emu.cfg (#45; only when on and set)
+  community.general.ini_file:
+    path: "{{ dreamcast_emu_cfg }}"
+    section: achievements
+    option: UserName
+    value: "{{ dreamcast_cheevos_user }}"
+    no_extra_spaces: false
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0600"
+  become: true
+  when: dreamcast_cheevos_enable | bool and dreamcast_cheevos_user | length > 0 and not dreamcast_cheevos_app_login | bool
+
+- name: RetroAchievements login token in emu.cfg (from the Keychain via bin/deploy; never logged)
+  community.general.ini_file:
+    path: "{{ dreamcast_emu_cfg }}"
+    section: achievements
+    option: Token
+    value: "{{ cheevos_token }}"
+    no_extra_spaces: false
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0600"
+  become: true
+  no_log: true
+  when: >-
+    dreamcast_cheevos_enable | bool and (cheevos_token | default('')) | length > 0
+    and not dreamcast_cheevos_app_login | bool
+
+# --- Pad mapping (skills/controls/flycast; the maintainer 2026-11-15, SF III LP/MP) ----------------------
+# flycast only writes a mapping file when someone changes controls in its own menu (settings_controls.cpp
+# save_mapping), never on start or exit; a re-run of this role puts ours back (backup: true keeps theirs).
+- name: Check whether flycast is running (mapping files are only replaced while it is stopped)
+  ansible.builtin.command: pgrep -x flycast
+  register: dreamcast_flycast_pgrep
+  changed_when: false
+  failed_when: dreamcast_flycast_pgrep.rc not in [0, 1]
+  check_mode: false
+
+- name: Check the panel's SDL_GAMECONTROLLERCONFIG is the one the mapping files were written for
+  ansible.builtin.command:
+    argv: [grep, -qF, --, "{{ dreamcast_sdl_gamecontrollerconfig }}", "{{ dreamcast_sdl_profile }}"]
+  register: dreamcast_sdlcfg_grep
+  changed_when: false
+  failed_when: dreamcast_sdlcfg_grep.rc > 1
+  check_mode: false
+
+- name: Create flycast's mappings dir
+  ansible.builtin.file:
+    path: "{{ dreamcast_mappings_dir }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+
+# backup: true keeps a replaced file as <name>.<pid>.<date>~ (flycast only opens the exact names).
+- name: Install the flycast pad mappings
+  ansible.builtin.copy:
+    src: "{{ dreamcast_mappings_src }}/{{ item }}"
+    dest: "{{ dreamcast_mappings_dir }}/{{ item }}"
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+    backup: true
+  become: true
+  loop: "{{ dreamcast_mapping_files }}"
+  when: dreamcast_flycast_pgrep.rc == 1 and dreamcast_sdlcfg_grep.rc == 0
+
+- name: Warn when the pad mappings were skipped
+  ansible.builtin.debug:
+    msg: >-
+      WARN flycast pad mappings NOT installed:
+      {{ 'flycast is running (quit the game, re-run)' if dreamcast_flycast_pgrep.rc == 0 else '' }}
+      {{ 'SDL_GAMECONTROLLERCONFIG in ' ~ dreamcast_sdl_profile ~ ' differs from dreamcast_sdl_gamecontrollerconfig (the files use raw js codes; re-derive them)' if dreamcast_sdlcfg_grep.rc != 0 else '' }}
+  when: dreamcast_flycast_pgrep.rc == 0 or dreamcast_sdlcfg_grep.rc != 0
+
+# --- ES-DE wiring (existing files only; edits in place, no templating of ES-DE state) ----------
+- name: Check for ES-DE find rules
+  ansible.builtin.stat:
+    path: "{{ dreamcast_es_find_rules }}"
+  register: dreamcast_rules_stat
+
+# Inserts the FLYCAST emulator before </ruleList> only when no FLYCAST emulator exists yet; the
+# RETROARCH rules stay untouched. Idempotent through the negative lookahead.
+- name: Add the FLYCAST emulator to es_find_rules.xml
+  ansible.builtin.replace:
+    path: "{{ dreamcast_es_find_rules }}"
+    regexp: '\A(?![\s\S]*<emulator name="FLYCAST">)([\s\S]*?)([ \t]*</ruleList>)'
+    replace: "\\g<1>  <emulator name=\"FLYCAST\">\n    <rule type=\"staticpath\"><entry>{{ dreamcast_dir }}/flycast-run.sh</entry></rule>\n  </emulator>\n\\g<2>"
+  become: true
+  when: dreamcast_rules_stat.stat.exists
+
+- name: Warn when es_find_rules.xml is missing
+  ansible.builtin.debug:
+    msg: "WARN {{ dreamcast_es_find_rules }} not found; start ES-DE once, then re-run."
+  when: not dreamcast_rules_stat.stat.exists
+
+- name: Check for the dreamcast gamelist
+  ansible.builtin.stat:
+    path: "{{ dreamcast_gamelist }}"
+  register: dreamcast_gamelist_stat
+
+# Puts <alternativeEmulator> right after the XML declaration unless it is already the first element.
+- name: Make Flycast (Standalone) the dreamcast alternative emulator
+  ansible.builtin.replace:
+    path: "{{ dreamcast_gamelist }}"
+    regexp: '\A(<\?xml[^>]*>)(?!\s*<alternativeEmulator>)(\s*)'
+    replace: "\\g<1>\n<alternativeEmulator>\n\t<label>{{ dreamcast_alt_emulator_label }}</label>\n</alternativeEmulator>\\g<2>"
+  become: true
+  when: dreamcast_gamelist_stat.stat.exists

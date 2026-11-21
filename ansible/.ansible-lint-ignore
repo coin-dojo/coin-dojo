@@ -1,0 +1,7 @@
+# ansible-lint ignores: `<path> <rule>`. Reasons:
+# handler names are notify keys (lowercase on purpose) and the role tests grep task/handler names, so renaming them
+# would break `notify:` and the tests (#124). Every other casing finding was fixed.
+roles/cabinet_tweaks/handlers/main.yml name[casing]
+roles/journald/handlers/main.yml name[casing]
+roles/power/handlers/main.yml name[casing]
+roles/settings/tasks/main.yml name[casing]

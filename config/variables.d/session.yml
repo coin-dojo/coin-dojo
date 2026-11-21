@@ -1,0 +1,21 @@
+# Area: session. The cabinet's screen session (#209): the boot menu, ES-DE and Fightcade one at a time in one cage.
+area: session
+description: The session loop on tty1 (boot menu -> ES-DE or Fightcade -> back to the menu).
+variables:
+  hk_session_enable:
+    type: bool
+    default: true
+    description: >-
+      Run the session loop (coin-dojo-session) on tty1 instead of plain ES-DE. false puts the plain
+      `exec cage -d -- es-de ...` line back into ~/.bash_profile on the next deploy (the rollback); it takes effect
+      at the next login on tty1 (reboot).
+    consumers: [ansible/roles/session]
+  hk_session_countdown:
+    type: int
+    default: 5
+    min: 0
+    max: 60
+    description: >-
+      Seconds the boot menu waits at power-on before it starts ARCADE (ES-DE) by itself; any input stops the
+      countdown. 0 = always wait for a choice. After a mode ends the menu always waits.
+    consumers: [ansible/roles/session]

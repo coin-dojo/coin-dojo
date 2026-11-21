@@ -1,0 +1,9 @@
+=== drm
+card1-HDMI-A-1 disconnected
+card1-HDMI-A-2 connected
+card1-Writeback-1 unknown
+card1-Writeback-2 unknown
+=== client.conf
+; autospawn = yes
+=== default
+alsa_output.platform-107c706400.hdmi.hdmi-stereo

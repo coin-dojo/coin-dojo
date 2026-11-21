@@ -1,0 +1,26 @@
+# WWF No Mercy (N64), game remap (the maintainer 2026-11-15; KI Gold method). ROM stem on the cabinet: "WWF No Mercy".
+# Roles from the controls list in the FAQ hosted by video-games-museum (GameFAQs, isv666, 2001), p.2-3:
+#   A = weak/strong grapple (tap/hold)  B = weak/strong attack  R = block/counter strikes, release, pick up
+#   L = reverse/avoid grapples, pin, dodge  C-Down = run, climb turnbuckle, slide into ring
+#   C-Left = turn opponent, pick up weapons  C-Up = climb through ropes  C-Right = focus  Z = CPU/manual toggle
+#   Control pad = move; analog stick = taunts + finishing moves (the stick is both: see below).
+# Panel (default mode, mupen64plus-alt-map = "False"; Mupen64Plus-Next emulate_game_controller_via_libretro.c
+# L331-380: RetroPad Y = N64 B, B = N64 A, L = N64 L, R = N64 R, right analog = C buttons):
+#   Jab (Y) = B Strike         Strong (X) -> 11 (R) Block/Counter   Fierce (L) -> 21 (R-X-) C-Left Turn/Weapon
+#   Short (B) = A Grapple      Forward (A) -> 10 (L) Reverse/Pin    Roundhouse (R) -> 22 (R-Y+) C-Down Run
+#   SELECT -> 23 (R-Y-) C-Up Climb ropes (START+SELECT still exits: hotkeys read the physical buttons).
+# Not on the panel: Z (CPU toggle), C-Right (focus). The stick: the autoconfig puts it on the d-pad; the game
+# override config/Mupen64Plus-Next/WWF No Mercy.cfg (Ansible cabinet_tweaks) also binds it to the left analog.
+# A game remap replaces Mupen64Plus-Next.rmp for this game, so every panel button is listed. Player 2 = player 1.
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "1"
+input_player1_btn_x = "11"
+input_player1_btn_l = "21"
+input_player1_btn_a = "10"
+input_player1_btn_r = "22"
+input_player1_btn_select = "23"
+input_player2_btn_x = "11"
+input_player2_btn_l = "21"
+input_player2_btn_a = "10"
+input_player2_btn_r = "22"
+input_player2_btn_select = "23"

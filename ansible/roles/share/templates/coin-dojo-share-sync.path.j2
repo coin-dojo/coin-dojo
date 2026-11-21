@@ -1,0 +1,11 @@
+# {{ ansible_managed | default('Managed by Ansible') }}: role share (#266).
+# passwd rewrites /etc/shadow: run the sync right away, not only at the next boot.
+[Unit]
+Description=coin-dojo network folder: watch the Linux password
+
+[Path]
+PathChanged=/etc/shadow
+Unit=coin-dojo-share-sync.service
+
+[Install]
+WantedBy=multi-user.target

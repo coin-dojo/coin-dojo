@@ -1,0 +1,74 @@
+# Hand-picked games for the folder grids (2x2): the community example (#190; a private checkout keeps its own in
+# personal/skills/collections/folder_photos/folder_picks.tsv). virtual<TAB>folder<TAB>regex|regex|regex|regex (link names)
+decades	1970s	^invaders\.|^galaxian\.|^asteroid\.|^nitedrvr\.
+decades	1980-84	^pacman\.|^dkong\.|^galaga\.|^digdug\.
+decades	1985-89	^ffight\.|^rtype\.|^bublbobl\.|^ghouls\.
+decades	1990-94	^ssf2t\.|Turtles in Time \(|Gunstar Heroes|Super Metroid
+decades	1995-99	^sfiii3\.|^mslug\.|^garou\.|^sfa3\.
+decades	2000-04	^mvsc\.|Ikaruga|^mslug3\.|Project Justice
+genres	fighters	^sfiii3\.|^garou\.|^kof98\.|^mvsc\.
+genres	shmups	^ddonpach\.|^batsugun\.|Radiant Silvergun|Ikaruga
+genres	beat-em-up	^ffight\.|^dino\.|Streets of Rage 2|^punisher\.
+genres	run-and-gun	^mslug\.|^contra\.|Gunstar Heroes|Contra III
+genres	platformers	Super Mario World \(|Sonic the Hedgehog 2|^bublbobl\.|Mega Man X \(
+genres	puzzle	^spf2t\.|Tetris Attack|^pbobblen?\.|Mean Bean Machine
+genres	sports	^nbajamte\.|^wjammers\.|Virtua Tennis 2|^turfmast\.
+genres	racing	Rock n' Roll Racing|^spyhunt\.|OutRun|F-Zero
+genres	maze	^pacman\.|^mspacman\.|^digdug\.|^mrdo\.
+systems	cps1	^ffight\.|^sf2ce\.|^ghouls\.|^strider\.
+systems	cps2	^ssf2t\.|^sfa3\.|^ddsom\.|^mshvsf\.
+systems	cps3	^sfiii3\.|^jojoba\.|^sfiii2\.|^sfiii\.
+systems	fbneo	^galaga\.|^tmnt2|^simpsons|^ddonpach\.
+# SERIES (2026-11-14, #55b): 4 per folder, regex against the link name; a 3-game series has 3 picks (grid() centres the third)
+series	mega-man	Mega Man X \(USA|Mega Man 2 \(|Mega Man X3|^megaman\.
+series	toaplan	^batsugun\.|^truxton2\.|^fireshrk\.|^snowbros\.
+series	cave	^ibara\.|^mushisam\.|^espgal2\.|^guwange\.
+series	king-of-fighters	^kof98\.|^kof2002\.|^kof97\.|^kof95\.
+series	gradius	^gradius3\.|^salamand\.|Gradius Gaiden|Sexy Parodius
+series	fatal-fury	^garou\.|^rbff2\.|^fatfury3\.|^rbffspec\.
+series	bomberman	Super Bomberman 2|Saturn Bomberman|Bomberman '94|^neobombe\.
+series	tmnt	Turtles in Time|Hyperstone Heist|Manhattan Project|Tournament Fighters \(USA\)\.
+series	double-dragon	^ddragon\.|^ddragon2\.|Super Double Dragon|Battletoads
+series	tetris	Tetris Attack|^tetrisp2\.|Tetrisphere|^atetris\.
+series	wonder-boy	Wonder Boy in Monster World|Monster World IV|^wbml\.|^wb3\.
+series	194x	^1942\.|^1943\.|^1944\.|^19xx\.
+series	castlevania	Bloodlines|Super Castlevania IV|Dracula X|Castlevania III
+series	contra	Contra III|Hard Corps|^contra\.|Super C
+series	strikers	^s1945ii\.|^s1945\.|^s1945iii\.|^sonicwi2\.
+series	donpachi	^donpachi\.|^ddonpach\.|^ddp3\.|^ddpdfk\.
+series	donkey-kong	Donkey Kong Country \(|Country 2|^dkong\.|^dkongjr\.
+series	puyo	^puyopuy2\.|^pbobblen\.|Mean Bean|^pbobble3\.
+series	r-type	^rtype\.|^rtype2\.|Super R-Type|R-Type III
+series	galaga	^galaga\.|^gaplus\.|Galaga '90|^galaga88\.
+series	pac-man	^pacman\.|^mspacman\.|^pacland\.|Maze Madness
+series	shinobi	Shinobi III|Revenge of Shinobi|Shadow Dancer|^shinobi\.
+series	sonic	Sonic The Hedgehog 2|Sonic CD|Sonic The Hedgehog \(USA|Sonic & Knuckles
+series	metal-slug	^mslug\.|^mslugx\.|^mslug3\.|^mslug5\.
+series	samurai-shodown	^samsho\.|^samsho2\.|^samsho3\.|^samsh5fe\.
+series	ghosts-n-goblins	^ghouls\.|^gng\.|Super Ghouls
+series	ninja-gaiden	^gaiden\.|Ninja Gaiden \(USA|Ninja Gaiden II|Ninja Gaiden III
+series	bubble-bobble	^bublbobl\.|^rbisland\.|^bublbob2\.|Parasol Stars
+series	golden-axe	^goldnaxe\.|^ga2\.|Golden Axe II \(|Golden Axe III
+series	mario	Super Mario World \(|Super Mario Kart|Yoshi's Island|^mario\.
+series	mortal-kombat	^mk\.|^mk2\.|^umk3\.|Mortal Kombat 3
+series	star-soldier	Super Star Soldier|Soldier Blade|Star Parodier
+series	art-of-fighting	^aof\.|^aof2\.|^aof3\.
+series	streets-of-rage	Streets of Rage 2|Streets of Rage 3|Bare Knuckle
+series	marvel	^mvsc\.|^xmcota\.|^msh\.|^xmen2pa\.
+series	splatterhouse	^splatter\.|Splatterhouse 2|Splatterhouse 3|Splatterhouse \(USA
+series	lode-runner	^ldrun\.|^ldrun2\.|^ldrun4\.|^loderndf\.
+series	space-invaders	^invaders\.|^spacedx\.|^spcinv95\.|Space Invaders \(USA
+series	star-wars	^starwars\.|Super Star Wars \(|Empire Strikes Back \(USA\) \(Rev|Star Wars - The Empire
+series	thunder-force	Thunder Force III|Lightening Force|Thunder Force II|Thunder Force V
+series	fantasy-zone	^fantzone\.|^fantzn2\.|Super Fantasy Zone
+series	sengoku	^sengoku\.|^sengoku2\.|^sengoku3\.
+series	gauntlet	^gauntlet2p\.|^gaunt22p\.|Gauntlet IV
+series	rolling-thunder	^rthunder\.|^rthun2\.|Rolling Thunder 3
+series	phantasy-star	Phantasy Star IV|Phantasy Star II|Phantasy Star III
+series	road-rash	Road Rash II|Road Rash 3|Road Rash \(USA
+series	micro-machines	Micro Machines 2|Micro Machines 64|Micro Machines \(USA
+series	crash-bandicoot	Crash Bandicoot - Warped|Crash Bandicoot 2|Crash Bandicoot\.chd
+series	dragon-ball	^dbz2\.|^dbz\.|Hyper Dimension
+series	dig-dug	^digdug\.|^digdug2\.|Dig Dug \(USA
+series	punch-out	^punchout\.|Mike Tyson|Super Punch-Out!! \(USA|^spnchout\.
+series	king-of-the-monsters	^kotm2\.|^kotm\.|King of the Monsters \(USA

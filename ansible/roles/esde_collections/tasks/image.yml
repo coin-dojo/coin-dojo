@@ -1,0 +1,81 @@
+# esde_collections, image build (#244; tasks/main.yml includes this when coin_dojo_image, then ends the role).
+# A new image has no ROMs, picks or dat: no nested main screen yet. It gets the tools, the entry script and the
+# starter carousel (files/starter.py): SETTINGS and QUIT TO MAIN MENU from nested.py, laid out as the full build does
+# (nested_out/roms_nested/<slug>/<Link>.hks, /data/nested -> it, ES-DE's gamelists/<slug>), without <loadExclusive/>.
+# The first `make deploy-esde` on the cabinet replaces all of it with the nested main screen.
+- name: Ship the tools (the edition's lists, as the full build) to {{ coin_dojo_dir }}
+  ansible.builtin.copy:
+    src: "{{ (esde_collections_personal ~ '/' ~ item) if (coin_dojo_edition != 'community' and (esde_collections_personal ~ '/' ~ item) is file) else (esde_collections_src ~ '/' ~ item) }}"
+    dest: "{{ coin_dojo_dir }}/{{ item }}"
+    mode: "0644"
+  loop: "{{ esde_collections_tools }}"
+
+- name: The virtual-system names next to the tools
+  ansible.builtin.copy:
+    content: "{{ esde_virtual_systems | to_json }}\n"
+    dest: "{{ coin_dojo_dir }}/virtual_systems.json"
+    mode: "0644"
+
+- name: The ES-DE entry script (QUIT TO MAIN MENU runs it)
+  ansible.builtin.copy:
+    src: "{{ esde_collections_src }}/esde_entry.sh"
+    dest: "{{ esde_collections_entry_script }}"
+    mode: "0755"
+
+- name: The starter carousel from nested.py (control node)
+  ansible.builtin.command:
+    argv: [python3, -I, "{{ role_path }}/files/starter.py", --tools, "{{ esde_collections_src }}",
+           --nested-root, "{{ esde_nested_root }}", --settings-command, "{{ esde_collections_settings_command }}",
+           --quit-command, "{{ esde_collections_entry_command }} menu"]
+  environment: {HK_VIRTUAL_SYSTEMS: "{{ esde_virtual_systems | to_json }}"}
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+  register: esde_starter_run
+
+- name: Parse it
+  ansible.builtin.set_fact:
+    esde_starter: "{{ esde_starter_run.stdout | from_json }}"
+    esde_starter_targets:
+      settings: "{{ esde_collections_settings_entry }}"
+      quit: "{{ esde_collections_entry_script }}"
+
+- name: Carousel dirs (nested_out/roms_nested/<slug>, ES-DE's gamelists/<slug>, custom_systems)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ [esde_custom_systems] + (esde_starter.links.keys() | map('regex_replace', '^', esde_nested_out ~ '/roms_nested/') | list)
+            + (esde_starter.links.keys() | map('regex_replace', '^', esde_gamelists ~ '/') | list) }}"
+
+- name: The one entry per tool system (a link to its entry file, as the nested build makes it)
+  ansible.builtin.file:
+    src: "{{ esde_starter_targets[item.key] }}"
+    dest: "{{ esde_nested_out }}/roms_nested/{{ item.key }}/{{ item.value }}"
+    state: link
+    force: true
+  loop: "{{ esde_starter.links | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: "Link nested_out/roms_nested (es_systems.xml <path> points there) to {{ esde_nested_root }}"
+  ansible.builtin.file:
+    src: "{{ esde_nested_out }}/roms_nested"
+    dest: "{{ esde_nested_root }}"
+    state: link
+
+- name: Their gamelists
+  ansible.builtin.copy:
+    content: "{{ item.value }}"
+    dest: "{{ esde_gamelists }}/{{ item.key }}/gamelist.xml"
+    mode: "0644"
+  loop: "{{ esde_starter.gamelists | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Custom_systems/es_systems.xml (SETTINGS, QUIT TO MAIN MENU; the bundled systems stay)
+  ansible.builtin.copy:
+    content: "{{ esde_starter.es_systems }}"
+    dest: "{{ esde_custom_systems }}/es_systems.xml"
+    mode: "0644"

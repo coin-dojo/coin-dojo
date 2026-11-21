@@ -1,0 +1,56 @@
+# Curated duplicates for `collgen.py dupes`: the community example (#190). A private checkout keeps its own list in
+# personal/skills/collections/duplicates.tsv, which is the default there (nested.data_path). Tab separated:
+# keep-system  keep-path  hide-system  hide-path   (paths as in the gamelist <path>)
+# collgen.py dupes sets <hidden>true</hidden> on the hide entry; the keep entry must exist.
+# "-  -" in the hide columns = keep-only note: fbneo contra stays visible next to NES Contra on purpose.
+# Kept on purpose, NOT listed (different games, not ports): NES Bionic Commando, Ninja Gaiden, Rygar,
+# Contra, Battletoads, Double Dragon II; SNES Super Punch-Out!!; Genesis Moonwalker; Neo Geo Double Dragon.
+cps2	./avsp.zip	snes	./Alien vs Predator (USA).zip
+fbneo	./altbeast.zip	genesis	./Altered Beast (USA, Europe).zip
+fbneo	./contra.zip	-	-
+fbneo	./ddragon.zip	nes	./Double Dragon (USA).zip
+genesis	./Earthworm Jim (USA).zip	snes	./Earthworm Jim (USA).zip
+genesis	./Earthworm Jim 2 (USA).zip	snes	./Earthworm Jim 2 (USA).zip
+neogeo	./fatfursp.zip	snes	./Fatal Fury Special (USA).zip
+fbneo	./fireshrk.zip	genesis	./Fire Shark (USA).zip
+fbneo	./flicky.zip	genesis	./Flicky (USA, Europe).zip
+fbneo	./gground.zip	genesis	./Gain Ground (USA).zip
+fbneo	./gng.zip	nes	./Ghosts'n Goblins (USA).zip
+cps1	./ghouls.zip	genesis	./Daimakaimura ~ Ghouls'n Ghosts (Japan, USA).zip
+cps2	./gigawing.zip	dreamcast	./GigaWing.chd
+fbneo	./goldnaxe.zip	genesis	./Golden Axe (World) (Rev A).zip
+fbneo	./gradius3.zip	snes	./Gradius III (USA).zip
+fbneo	./growl.zip	genesis	./Growl (USA).zip
+fbneo	./gunbird2.zip	dreamcast	./Gunbird 2.chd
+fbneo	./gunsmoke.zip	nes	./Gun.Smoke (USA).zip
+fbneo	./hbarrel.zip	nes	./Heavy Barrel (USA).zip
+fbneo	./imgfight.zip	pcengine	./Image Fight.zip
+fbneo	./jackal.zip	nes	./Jackal (USA).zip
+cps3	./jojoba.zip	dreamcast	./JoJo's Bizarre Adventure.chd
+cps1	./knights.zip	snes	./Knights of the Round (USA).zip
+fbneo	./mk.zip	snes	./Mortal Kombat (USA) (Rev 1).zip
+fbneo	./mk.zip	genesis	./Mortal Kombat (World).zip
+fbneo	./mk2.zip	snes	./Mortal Kombat II (USA) (Rev 1).zip
+fbneo	./mk2.zip	genesis	./Mortal Kombat II (World).zip
+fbneo	./nbajamte.zip	snes	./NBA Jam - Tournament Edition (USA).zip
+fbneo	./nbajamte.zip	genesis	./NBA Jam - Tournament Edition (World).zip
+fbneo	./nspirit.zip	pcengine	./Ninja Spirit.zip
+fbneo	./outrun.zip	genesis	./OutRun (USA, Europe).zip
+fbneo	./rthun2.zip	genesis	./Rolling Thunder 2 (USA).zip
+fbneo	./rtype.zip	pcengine	./R-Type.zip
+fbneo	./rushatck.zip	nes	./Rush'n Attack (USA).zip
+fbneo	./salamand.zip	pcengine	./Salamander.zip
+cps1	./slammast.zip	snes	./Saturday Night Slam Masters (USA).zip
+fbneo	./smashtv.zip	nes	./Smash T.V. (USA).zip
+fbneo	./splatter.zip	pcengine	./Splatterhouse.zip
+cps1	./strider.zip	genesis	./Strider (USA, Europe).zip
+fbneo	./ssridersubc.zip	snes	./Sunset Riders (USA).zip
+cps2	./spf2t.zip	psx	./Super Puzzle Fighter II Turbo.chd
+cps1	./punisher.zip	genesis	./Punisher, The (USA).zip
+fbneo	./toki.zip	nes	./Toki (USA).zip
+fbneo	./totcarn.zip	snes	./Total Carnage (USA).zip
+fbneo	./umk3.zip	snes	./Ultimate Mortal Kombat 3 (USA).zip
+fbneo	./umk3.zip	genesis	./Ultimate Mortal Kombat 3 (USA).zip
+cps1	./unsquad.zip	snes	./U.N. Squadron (USA).zip
+fbneo	./wb3.zip	genesis	./Wonder Boy III - Monster Lair (Japan, Europe).zip
+cps2	./xmcota.zip	saturn	./X-Men - Children of the Atom.chd

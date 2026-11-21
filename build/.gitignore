@@ -1,0 +1,4 @@
+# Build outputs (RetroArch 1.22.2, GLES N64 core, flycast, Stella): binaries never go in git;
+# Ansible (retroarch122) pins them by sha256 and copies from here.
+*/out/
+*/work/

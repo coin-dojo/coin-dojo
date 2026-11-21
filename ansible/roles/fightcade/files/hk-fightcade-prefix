@@ -1,0 +1,137 @@
+#!/bin/bash
+# hk-fightcade-prefix (#208): build Fightcade mode's base Wine prefix, once per Wine build and recipe. Installed by the
+# ansible role `fightcade` to /usr/local/lib/coin-dojo-fightcade; the role runs it as the cabinet user when the prefix stamp does not
+# match. The launcher never writes this prefix: it copies the registry into a read-only RAM prefix per launch.
+#
+#   hk-fightcade-prefix PREFIX STAMP
+#
+# Recipe (#92): WINEDLLOVERRIDES=mscoree,mshtml=d (else wineboot hangs ~5 min on the hidden Mono/Gecko dialog and
+# leaves syswow64 empty), `wineboot -i`, HKCU\Software\Wine\Direct3D csmt=0 (option B: Wine's separate D3D thread cost
+# a dropped frame), HKLM\System\CurrentControlSet\Services\winebus "Map Controllers"=0 (#230: the sticks reach
+# DirectInput as plain joysticks, buttons in evdev order, whatever SDL_GAMECONTROLLERCONFIG says), `wineserver -w`. Built in place at PREFIX, because the registry names its own Z: paths; only
+# the drives c: and z: stay. The stamp is written last: no stamp = not built (the launcher refuses).
+# wineboot's output (WINEDEBUG=err+all, BOX64_LOG=1) goes to $HK_FC_LOGS/wineboot.log, or next to the prefix when
+# HK_FC_LOGS is unset or not writable; the previous build's log stays as wineboot.log.1. A failure prints the log's tail
+# and says whether the rc is the timeout (124) or a signal (128+N). rc 137 (SIGKILL) is retried ONCE, after
+# `wineserver -k`, from an empty prefix (#216): on the first cabinet deploy (2026-11-18) wineboot was SIGKILLed after
+# 72 s, no OOM, far from the 900 s limit, and the same wineboot then passed by hand and on the re-run; cause not located
+# (hypothesis: a Box64 crash path or a child killed under the become session). A timeout is not retried (another
+# 15 min hang) and neither is any other rc (a deterministic failure fails again).
+# Exit codes: 0 ok (built or already current), 1 build failed, 2 bad usage or missing artifact.
+set -u
+CONF=${COIN_DOJO_FIGHTCADE_CONF:-/usr/local/etc/coin-dojo-fightcade.conf}
+say() { printf 'hk-fightcade-prefix: %s\n' "$*" >&2; }
+die() { local rc=$1; shift; say "ERROR: $*"; exit "$rc"; }
+# tmo SECONDS CMD...: timeout when there is one (macOS, where the tests also run, has none)
+tmo() { if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift; "$@"; fi; }
+
+[ "$(id -u)" != 0 ] || [ "${HK_FC_ALLOW_ROOT:-}" = 1 ] || die 2 "refusing to run as root: build the prefix as the cabinet user"
+[ $# -eq 2 ] || die 2 "usage: hk-fightcade-prefix PREFIX STAMP"
+PREFIX=${1%/} STAMP=$2
+case "$PREFIX" in /*/*) ;; *) die 2 "PREFIX must be an absolute path below a folder: $PREFIX" ;; esac
+[ -r "$CONF" ] || die 2 "missing config $CONF"
+# shellcheck source=/dev/null
+. "$CONF"
+WINE="$HK_FC_BINDIR/wine"
+WINESERVER="$HK_FC_BINDIR/wineserver"
+[ -x "$WINE" ] && [ -x "$WINESERVER" ] || die 2 "missing wrappers in $HK_FC_BINDIR"
+
+if [ -f "$PREFIX/.hk-stamp" ] && [ "$(cat "$PREFIX/.hk-stamp")" = "$STAMP" ]; then
+  say "base prefix $PREFIX is current ($STAMP)"
+  exit 0
+fi
+
+export WINEPREFIX="$PREFIX" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=d"
+unset DISPLAY WAYLAND_DISPLAY
+# No Box64 speed flags for the build: the safe defaults.
+for v in $(env | sed -n 's/^\(BOX64_DYNAREC_[A-Z]*\)=.*/\1/p'); do unset "$v"; done
+
+WINEBOOT_SECS=900   # tmo's limit for one wineboot -i
+WINEBOOT_TRIES=2    # 1 + one retry, only on rc 137 (see the header)
+
+# rc_says RC: what an exit code of `tmo SECS wine ...` means (GNU timeout: 124; killed by signal N: 128+N)
+rc_says() {
+  case "$1" in
+    124) echo "timed out after $WINEBOOT_SECS s (timeout's rc 124)" ;;
+    126 | 127) echo "could not be started (rc $1)" ;;
+    137) echo "was killed by SIGKILL (rc 137 = 128+9; not the $WINEBOOT_SECS s timeout, which is rc 124)" ;;
+    *)
+      if [ "$1" -gt 128 ] && [ "$1" -lt 192 ]; then
+        echo "was killed by signal SIG$(kill -l $(($1 - 128)) 2>/dev/null) (rc $1 = 128+$(($1 - 128)))"
+      else
+        echo "exited with rc $1"
+      fi
+      ;;
+  esac
+}
+
+# fresh_prefix: an empty PREFIX (a half-built one from a killed wineboot is never reused)
+fresh_prefix() {
+  if [ -e "$PREFIX" ]; then
+    chmod -R u+w "$PREFIX" 2>/dev/null
+    rm -rf "$PREFIX" || die 1 "cannot remove the old $PREFIX"
+  fi
+  mkdir -p "$PREFIX" || die 1 "cannot create $PREFIX"
+  chmod 0755 "$PREFIX"
+}
+
+# wine_procs: this user's wine/box64 processes (what was still alive after a failure), for the log
+wine_procs() {
+  # shellcheck disable=SC2009  # ps, not pgrep: the log wants ppid, state and age too (pgrep -a is Linux-only)
+  ps -u "$(id -u)" -o pid= -o ppid= -o stat= -o etime= -o args= 2>/dev/null | grep -E '[w]ine|[b]ox64'
+}
+
+fresh_prefix
+
+# The log: HK_FC_LOGS (the role's 0700 logs dir), else next to the prefix (never inside it: it is wiped).
+LOGDIR=${HK_FC_LOGS:-}
+if [ -z "$LOGDIR" ] || ! mkdir -p "$LOGDIR" 2>/dev/null || [ ! -w "$LOGDIR" ]; then LOGDIR=${PREFIX%/*}; fi
+LOG="$LOGDIR/wineboot.log"
+[ -f "$LOG" ] && mv -f "$LOG" "$LOG.1"
+(umask 077 && : > "$LOG") || die 1 "cannot write the wineboot log $LOG"
+
+say "wineboot -i in $PREFIX (about 10 s on the Pi 5, longer under load); log: $LOG"
+try=1
+while :; do
+  printf '=== %s wineboot -i, attempt %d of %d, WINEPREFIX=%s WINEDEBUG=err+all BOX64_LOG=1\n' \
+    "$(date '+%F %T')" "$try" "$WINEBOOT_TRIES" "$PREFIX" >> "$LOG"
+  rc=0
+  tmo "$WINEBOOT_SECS" env WINEDEBUG=err+all BOX64_LOG=1 "$WINE" wineboot -i >> "$LOG" 2>&1 || rc=$?
+  [ "$rc" = 0 ] && { printf '=== %s wineboot rc 0\n' "$(date '+%F %T')" >> "$LOG"; break; }
+  {
+    printf '=== %s wineboot %s\n' "$(date '+%F %T')" "$(rc_says "$rc")"
+    echo "=== this user's wine/box64 processes still running:"
+    wine_procs || echo "(none)"
+  } >> "$LOG"
+  if [ "$rc" = 137 ] && [ "$try" -lt "$WINEBOOT_TRIES" ]; then
+    say "wineboot $(rc_says "$rc"): retrying once from an empty prefix (log kept: $LOG)"
+    tmo 30 "$WINESERVER" -k >> "$LOG" 2>&1
+    fresh_prefix
+    try=$((try + 1))
+    continue
+  fi
+  say "the last lines of $LOG:"
+  tail -n 25 "$LOG" | sed 's/^/  | /' >&2
+  die 1 "wineboot $(rc_says "$rc") (attempt $try of $WINEBOOT_TRIES); full log: $LOG"
+done
+tmo 120 "$WINE" reg add 'HKCU\Software\Wine\Direct3D' /v csmt /t REG_DWORD /d 0 /f >> "$LOG" 2>&1 \
+  || die 1 "could not set Direct3D csmt=0 (rc $?; log: $LOG)"
+tmo 120 "$WINE" reg add 'HKLM\System\CurrentControlSet\Services\winebus' /v 'Map Controllers' /t REG_DWORD /d 0 /f \
+  >> "$LOG" 2>&1 || die 1 "could not set winebus Map Controllers=0 (rc $?; log: $LOG)"
+tmo 120 "$WINESERVER" -w || die 1 "wineserver -w did not finish"
+
+for f in system.reg user.reg userdef.reg drive_c/windows/syswow64/kernel32.dll drive_c/windows/system32/kernel32.dll; do
+  [ -e "$PREFIX/$f" ] || die 1 "the prefix has no $f (wineboot incomplete: the Mono/Gecko hang?)"
+done
+grep -q '"csmt"=dword:00000000' "$PREFIX/user.reg" || die 1 "user.reg lacks csmt=0"
+grep -q '"Map Controllers"=dword:00000000' "$PREFIX/system.reg" || die 1 "system.reg lacks winebus Map Controllers=0"
+
+# Only c: (the base drive_c) and z: (/) stay: the RAM prefix recreates exactly these two.
+for d in "$PREFIX"/dosdevices/*; do
+  [ -e "$d" ] || [ -L "$d" ] || continue
+  case "${d##*/}" in c: | z:) ;; *) rm -f "$d" ;; esac
+done
+
+printf '%s\n' "$STAMP" > "$PREFIX/.hk-stamp" || die 1 "cannot write the stamp"
+say "base prefix built: $PREFIX ($STAMP)"
+exit 0

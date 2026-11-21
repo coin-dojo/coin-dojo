@@ -1,0 +1,241 @@
+# vm_base (#82): VM ONLY (see defaults). Order: guard -> packages -> zram -> /data -> ES-DE -> seed files
+# the cabinet roles edit in place (only when missing) -> guest scripts (hk-session, smoke).
+
+- name: Refuse to run anywhere but coin-dojo-vm
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == vm_base_hostname
+      - ansible_hostname == vm_base_hostname
+      - "'vm' in group_names"
+      - "'pios' not in group_names"
+    fail_msg: "vm_base is VM-only: {{ inventory_hostname }} (hostname {{ ansible_hostname }}, groups {{ group_names }}) is not {{ vm_base_hostname }}."
+    quiet: true
+
+- name: Debian packages for the headless cabinet stack
+  ansible.builtin.apt:
+    name: "{{ vm_base_packages }}"
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: The cabinet user is in the cabinet's device groups
+  ansible.builtin.user:
+    name: "{{ cabinet_user }}"
+    groups: [video, render, audio, input]
+    append: true
+  become: true
+
+# coindojo's processes (the headless session) survive the end of the SSH command that started them.
+- name: Linger for coindojo
+  ansible.builtin.command:
+    cmd: loginctl enable-linger {{ cabinet_user }}
+    creates: /var/lib/systemd/linger/{{ cabinet_user }}
+  become: true
+
+# --- zram ----------------------------------------------------------------------------------------
+- name: Zram-generator config
+  ansible.builtin.copy:
+    dest: /etc/systemd/zram-generator.conf
+    content: "{{ vm_base_zram_conf }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: vm_base_zram
+
+- name: Start zram swap now (the generator otherwise acts at the next boot)
+  ansible.builtin.systemd_service:
+    name: dev-zram0.swap
+    state: started
+    daemon_reload: "{{ vm_base_zram is changed }}"
+  become: true
+  when: not ansible_check_mode
+
+# --- /data (the cabinet's data partition is a plain dir here) -------------------------------------
+- name: /data dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0775"
+  become: true
+  loop: "{{ vm_base_data_dirs }}"
+
+# --- ES-DE ---------------------------------------------------------------------------------------
+- name: ES-DE dir
+  ansible.builtin.file:
+    path: "{{ vm_base_esde_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: ES-DE AppImage (upstream, sha256-pinned)
+  ansible.builtin.get_url:
+    url: "{{ vm_base_esde_url }}"
+    dest: "{{ vm_base_esde_dir }}/ES-DE_aarch64.AppImage"
+    checksum: "sha256:{{ vm_base_esde_sha256 }}"
+    mode: "0755"
+  become: true
+  register: vm_base_esde
+
+- name: Extract the AppImage (no FUSE needed), like the image build
+  ansible.builtin.shell:
+    cmd: rm -rf squashfs-root && ./ES-DE_aarch64.AppImage --appimage-extract >/dev/null
+    chdir: "{{ vm_base_esde_dir }}"
+  become: true
+  when: vm_base_esde is changed
+
+- name: /usr/local/bin/es-de wrapper (the cabinet's path)
+  ansible.builtin.copy:
+    dest: /usr/local/bin/es-de
+    content: "#!/bin/bash\nexec {{ vm_base_esde_dir }}/squashfs-root/AppRun \"$@\"\n"
+    mode: "0755"
+  become: true
+
+# --- seed files the cabinet roles edit in place (force: false = never overwrite) ------------------
+- name: RetroArch dirs
+  ansible.builtin.file:
+    path: "{{ cabinet_home }}/.config/retroarch/{{ item }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+  loop: ["", autoconfig, shaders, overlays]
+
+# cabinet_tweaks copies gen_cursor.py into ~/.icons without creating it (it exists on today's card,
+# not on a fresh one). Found by this VM (#82); reported for cabinet_tweaks.
+- name: ~/.icons exists (cabinet_tweaks needs it)
+  ansible.builtin.file:
+    path: "{{ cabinet_home }}/.icons"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+
+# The image build's retroarch.cfg (chroot-setup.sh) minus the shader (the glsl pack is not fetched
+# here) and with audio off (a vz guest has no sound card).
+- name: Base retroarch.cfg (only when missing)
+  ansible.builtin.copy:
+    dest: "{{ cabinet_home }}/.config/retroarch/retroarch.cfg"
+    force: false
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+    content: |
+      libretro_directory = "/usr/lib/aarch64-linux-gnu/libretro"
+      libretro_info_path = "/usr/share/libretro/info"
+      system_directory = "/data/bios"
+      savefile_directory = "/data/saves"
+      savestate_directory = "/data/states"
+      joypad_autoconfig_dir = "{{ cabinet_home }}/.config/retroarch/autoconfig"
+      video_driver = "gl"
+      video_fullscreen = "true"
+      video_smooth = "false"
+      video_force_aspect = "true"
+      video_aspect_ratio = "1.333300"
+      aspect_ratio_index = "22"
+      custom_viewport_width = "1440"
+      custom_viewport_height = "1080"
+      custom_viewport_x = "240"
+      custom_viewport_y = "0"
+      audio_driver = "null"
+      netplay_public_announce = "false"
+      menu_driver = "rgui"
+      input_joypad_driver = "udev"
+      input_max_users = "4"
+      video_threaded = "true"
+      rewind_enable = "false"
+      video_shader_enable = "false"
+      config_save_on_exit = "false"
+
+# The cabinet's tty1 block (cabinet_tweaks inserts the cursor export after MESA_GLSL_VERSION_OVERRIDE).
+# Inert in the VM: nothing logs in on tty1; hk-session starts the headless session instead.
+- name: Base .bash_profile (only when missing)
+  ansible.builtin.copy:
+    dest: "{{ cabinet_home }}/.bash_profile"
+    force: false
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+    content: |
+      [ -f ~/.bashrc ] && . ~/.bashrc
+      if [ "$(tty)" = "/dev/tty1" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+        export MESA_GL_VERSION_OVERRIDE=3.3COMPAT
+        export MESA_GLSL_VERSION_OVERRIDE=330
+        exec cage -d -- /usr/local/bin/es-de --resolution 1440 1080 --fullscreen-padding 1
+      fi
+
+- name: ES-DE settings dirs
+  ansible.builtin.file:
+    path: "{{ cabinet_home }}/ES-DE/{{ item }}"
+    state: directory
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0755"
+  become: true
+  loop: ["", settings, custom_systems, gamelists]
+
+# The image build's es_settings.xml (chroot-setup.sh). No scraper credentials in the VM.
+- name: Base es_settings.xml (only when missing)
+  ansible.builtin.copy:
+    dest: "{{ cabinet_home }}/ES-DE/settings/es_settings.xml"
+    force: false
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+    content: |
+      <?xml version="1.0"?>
+      <string name="ROMDirectory" value="/data/roms" />
+      <string name="MediaDirectory" value="/data/media" />
+      <string name="StartupSystem" value="" />
+      <bool name="ScreensaverControls" value="true" />
+      <string name="ScreensaverType" value="video" />
+      <int name="ScreensaverTimer" value="90000" />
+      <string name="ThemeAspectRatio" value="4:3" />
+
+- name: ES-DE find rules (RetroArch + cores where Debian puts them)
+  ansible.builtin.copy:
+    dest: "{{ cabinet_home }}/ES-DE/custom_systems/es_find_rules.xml"
+    force: false
+    owner: "{{ cabinet_user }}"
+    group: "{{ cabinet_group }}"
+    mode: "0644"
+    content: |
+      <?xml version="1.0"?>
+      <ruleList>
+        <emulator name="RETROARCH">
+          <rule type="systempath"><entry>retroarch</entry></rule>
+          <rule type="staticpath"><entry>/usr/bin/retroarch</entry></rule>
+        </emulator>
+        <core name="RETROARCH">
+          <rule type="corepath"><entry>/usr/lib/aarch64-linux-gnu/libretro</entry></rule>
+        </core>
+      </ruleList>
+
+# --- guest scripts (vm/guest) ---------------------------------------------------------------
+- name: Guest script dir
+  ansible.builtin.file:
+    path: "{{ vm_base_lib }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Smoke test + helpers
+  ansible.builtin.copy:
+    src: "{{ vm_base_guest_src }}/{{ item }}"
+    dest: "{{ vm_base_lib }}/{{ item }}"
+    mode: "0755"
+  become: true
+  loop: [smoke.sh, mknesrom.py, shotcheck.py]
+
+- name: Hk-session (headless cage session control)
+  ansible.builtin.copy:
+    src: "{{ vm_base_guest_src }}/hk-session"
+    dest: /usr/local/bin/hk-session
+    mode: "0755"
+  become: true

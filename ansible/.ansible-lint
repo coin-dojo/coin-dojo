@@ -1,0 +1,16 @@
+---
+# ansible-lint for coin-dojo (make lint, #124). Profile: default rules. Every skip needs a reason.
+skip_list:
+  # 78 role defaults are shared across roles on purpose (cabinet_user, cabinet_home, ... are the cabinet's facts, set
+  # once in group_vars/defaults and read by every role). Renaming them per role would fork one fact into many.
+  - var-naming[no-role-prefix]
+# Reported on every run but not failing: each is a deliberate pattern in the esde/vm roles, and changing them alters
+# what the deploy does to the cabinet, which a lint ticket must not do. Owners fix a site by removing it from the
+# findings (add mode:/changed_when:, use the module), then this list shrinks (27 sites at adoption, #124).
+warn_list:
+  - command-instead-of-module   # tar/rsync/systemctl with flags the module lacks, or needed in check mode
+  - command-instead-of-shell    # handlers run `cmd; true` style probes on purpose
+  - risky-file-permissions      # directories that must keep what ES-DE / the cabinet user already set
+  - risky-shell-pipe            # pipelines whose first-stage failure is handled by the script itself
+  - no-changed-when             # one-shot restart/extract commands
+  - no-handler                  # in-sequence reactions that must run before the next task, not at play end

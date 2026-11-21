@@ -1,0 +1,135 @@
+#!/bin/bash
+# hk-fightcade-unpack (#208): unpack one sha256-pinned Fightcade mode archive into its install folder, all or nothing.
+# Installed root-owned by the ansible role `fightcade` to /usr/local/lib/coin-dojo-fightcade; the role runs it as the
+# cabinet user (never root: the trees live on the cabinet user's data partition) when the folder's stamp does not
+# match (a new pin or a new link list). HK_FC_ALLOW_ROOT=1 is for the container tests only.
+# Bash 3.2 compatible (the tests run it on macOS too).
+#
+#   hk-fightcade-unpack [--strip N] [--link REL=TARGET]... [--dist REL]... [--patch REL=SHA256:SED]...
+#                       ARCHIVE SHA256 DEST STAMP
+#
+#   1. refuse unless sha256(ARCHIVE) = SHA256 (nothing is unpacked, DEST is untouched)
+#   2. unpack into DEST.new.<pid> (.zip with unzip, tar.* with tar --strip-components=N)
+#   3. --dist: REL is copied to REL.dist (the pristine copy the role merges its own keys over)
+#      --patch: REL must have the pinned upstream SHA256 (else exit 3: a new upstream file is re-pinned by hand),
+#               then `sed -e SED` rewrites it; a patch that changes nothing fails (Security #215: the lobby's popups)
+#      --link: REL (a folder or file the app writes) moves to REL.dist and becomes a link to TARGET
+#   4. no group/other write, no setuid/setgid bits, STAMP into DEST/.hk-stamp
+#   5. swap: DEST.new -> DEST, the old folder is removed
+# Exit codes: 0 ok, 1 unpack failed (DEST untouched), 2 bad usage, 3 sha256 mismatch.
+set -u
+
+say() { printf 'hk-fightcade-unpack: %s\n' "$*" >&2; }
+die() { local rc=$1; shift; say "ERROR: $*"; [ -n "${NEW:-}" ] && rm -rf "$NEW"; exit "$rc"; }
+
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+
+# safe_rel REL: a relative path inside the tree (no leading /, no ..)
+safe_rel() {
+  case "/$1/" in
+    *"/../"* | *"/./"* | "//"*) return 1 ;;
+  esac
+  [ -n "$1" ]
+}
+
+STRIP=0
+LINKS=()
+DISTS=()
+PATCHES=()
+NEW=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --strip) [ $# -ge 2 ] || die 2 "--strip needs a number"; STRIP=$2; shift 2 ;;
+    --link) [ $# -ge 2 ] || die 2 "--link needs REL=TARGET"; LINKS+=("$2"); shift 2 ;;
+    --dist) [ $# -ge 2 ] || die 2 "--dist needs REL"; DISTS+=("$2"); shift 2 ;;
+    --patch) [ $# -ge 2 ] || die 2 "--patch needs REL=SHA256:SED"; PATCHES+=("$2"); shift 2 ;;
+    --) shift; break ;;
+    -*) die 2 "unknown option $1" ;;
+    *) break ;;
+  esac
+done
+[ "$(id -u)" != 0 ] || [ "${HK_FC_ALLOW_ROOT:-}" = 1 ] || die 2 "refusing to run as root: unpack as the cabinet user"
+[ $# -eq 4 ] || die 2 "usage: hk-fightcade-unpack [--strip N] [--link REL=TARGET]... [--dist REL]... [--patch REL=SHA256:SED]... ARCHIVE SHA256 DEST STAMP"
+ARCHIVE=$1 WANT=$2 DEST=${3%/} STAMP=$4
+case "$STRIP" in '' | *[!0-9]*) die 2 "--strip must be a number, got '$STRIP'" ;; esac
+case "$WANT" in *[!0-9a-f]*) die 2 "SHA256 must be 64 hex digits" ;; esac
+[ ${#WANT} -eq 64 ] || die 2 "SHA256 must be 64 hex digits"
+case "$DEST" in /*) ;; *) die 2 "DEST must be absolute: $DEST" ;; esac
+[ -f "$ARCHIVE" ] || die 1 "missing archive $ARCHIVE"
+for l in ${LINKS[@]+"${LINKS[@]}"}; do
+  rel=${l%%=*}; to=${l#*=}
+  [ "$rel" != "$l" ] && [ -n "$to" ] || die 2 "--link wants REL=TARGET, got '$l'"
+  safe_rel "$rel" || die 2 "--link path must stay inside the tree: $rel"
+done
+for d in ${DISTS[@]+"${DISTS[@]}"}; do safe_rel "$d" || die 2 "--dist path must stay inside the tree: $d"; done
+for p in ${PATCHES[@]+"${PATCHES[@]}"}; do
+  rel=${p%%=*}; rest=${p#*=}; psha=${rest%%:*}; sedx=${rest#*:}
+  [ "$rel" != "$p" ] && [ "$psha" != "$rest" ] && [ -n "$sedx" ] || die 2 "--patch wants REL=SHA256:SED, got '$p'"
+  safe_rel "$rel" || die 2 "--patch path must stay inside the tree: $rel"
+  case "$psha" in *[!0-9a-f]*) die 2 "--patch $rel: SHA256 must be 64 hex digits" ;; esac
+  [ ${#psha} -eq 64 ] || die 2 "--patch $rel: SHA256 must be 64 hex digits"
+done
+
+GOT=$(sha256 "$ARCHIVE")
+[ "$GOT" = "$WANT" ] || die 3 "sha256 mismatch for $ARCHIVE: got $GOT, pinned $WANT. Refusing to unpack."
+
+NEW="$DEST.new.$$"
+rm -rf "$NEW"
+mkdir -p "$NEW" || die 1 "cannot create $NEW"
+case "$ARCHIVE" in
+  *.zip)
+    [ "$STRIP" = 0 ] || die 2 "--strip is not supported for .zip"
+    unzip -q -o "$ARCHIVE" -d "$NEW" || die 1 "unzip failed: $ARCHIVE"
+    ;;
+  *.tar | *.tar.gz | *.tgz | *.tar.xz | *.tar.bz2 | *.tar.zst)
+    tar -xf "$ARCHIVE" -C "$NEW" --strip-components="$STRIP" --no-same-owner || die 1 "tar failed: $ARCHIVE"
+    ;;
+  *) die 2 "unknown archive type: $ARCHIVE" ;;
+esac
+[ -n "$(ls -A "$NEW")" ] || die 1 "$ARCHIVE unpacked to nothing (wrong --strip?)"
+
+for d in ${DISTS[@]+"${DISTS[@]}"}; do
+  [ -f "$NEW/$d" ] || die 1 "--dist $d: no such file in $ARCHIVE"
+  cp -p "$NEW/$d" "$NEW/$d.dist" || die 1 "cannot keep $d.dist"
+done
+for p in ${PATCHES[@]+"${PATCHES[@]}"}; do
+  rel=${p%%=*}; rest=${p#*=}; psha=${rest%%:*}; sedx=${rest#*:}
+  f="$NEW/$rel"
+  [ -f "$f" ] && [ ! -L "$f" ] || die 1 "--patch $rel: no such file in $ARCHIVE"
+  got=$(sha256 "$f")
+  [ "$got" = "$psha" ] || die 3 "--patch $rel: sha256 $got, the patch is pinned to $psha (a new upstream file: re-pin the patch). Refusing to unpack."
+  sed -e "$sedx" "$f" > "$f.hk-patch" || die 1 "--patch $rel: sed failed"
+  ! cmp -s "$f" "$f.hk-patch" || die 1 "--patch $rel: the patch changed nothing"
+  cat "$f.hk-patch" > "$f" && rm -f "$f.hk-patch" || die 1 "--patch $rel: cannot write it"
+  say "patched $rel"
+done
+for l in ${LINKS[@]+"${LINKS[@]}"}; do
+  rel=${l%%=*}; to=${l#*=}
+  if [ -e "$NEW/$rel" ] || [ -L "$NEW/$rel" ]; then
+    rm -rf "$NEW/$rel.dist"
+    mv "$NEW/$rel" "$NEW/$rel.dist" || die 1 "cannot move $rel aside"
+  fi
+  mkdir -p "$(dirname "$NEW/$rel")" || die 1 "cannot create the folder of $rel"
+  ln -s "$to" "$NEW/$rel" || die 1 "cannot link $rel -> $to"
+done
+
+chmod -R a+rX,go-w,ug-s "$NEW" || die 1 "chmod failed"
+printf '%s\n' "$STAMP" > "$NEW/.hk-stamp" || die 1 "cannot write the stamp"
+chmod 0644 "$NEW/.hk-stamp"
+
+OLD=""
+if [ -e "$DEST" ] || [ -L "$DEST" ]; then
+  OLD="$DEST.old.$$"
+  mv "$DEST" "$OLD" || die 1 "cannot move the old $DEST aside"
+fi
+if ! mv "$NEW" "$DEST"; then
+  [ -n "$OLD" ] && mv "$OLD" "$DEST"
+  die 1 "cannot move $NEW to $DEST (old folder restored)"
+fi
+NEW=""
+[ -n "$OLD" ] && rm -rf "$OLD"
+say "unpacked $(basename "$ARCHIVE") -> $DEST"
+exit 0

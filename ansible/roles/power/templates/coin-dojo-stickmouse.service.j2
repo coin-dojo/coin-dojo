@@ -1,0 +1,18 @@
+# Managed by Ansible (role power, ticket #211). The arcade stick as a mouse for the Fightcade lobby.
+# Started and stopped by coin-dojo-fightcade (`systemctl --user start|stop coin-dojo-stickmouse`); no [Install] on
+# purpose, it never runs outside Fightcade mode (it also stays inert unless current-mode says fightcade).
+# Reads the stick (group input), writes a pointer through /dev/uinput, never grabs the stick. Exit 2 = /dev/uinput
+# not usable: no restart (it would only spin), `systemctl --user status` shows the reason.
+[Unit]
+Description=Coin Dojo stick-as-mouse for the Fightcade lobby (stickmouse)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+Environment="STICKMOUSE_STOP_CMD={{ stickmouse_stop_cmd }}"
+ExecStart=/usr/bin/python3 {{ power_dir }}/stickmouse.py
+NoNewPrivileges=yes
+Restart=on-failure
+RestartSec=2
+RestartPreventExitStatus=2

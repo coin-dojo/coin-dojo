@@ -1,0 +1,102 @@
+# cabinet_tweaks: Wi-Fi for online play (#213). Imported by tasks/main.yml.
+# 1. Power save OFF for every Wi-Fi network: a NetworkManager conf.d drop-in (`[connection] wifi.powersave = 2`), the
+#    default of each connection whose own powersave is "default" (what the SETTINGS app creates). NM reads it at the
+#    `nmcli general reload conf` below, which drops no link; each connection takes it at its next activation.
+# 2. A polkit rule: the cabinet user may run network-control (connection up/down) from any session, so that
+#    reconnect needs no sudo over SSH (2026-11-18: `nmcli device reapply` refuses a powersave change; `nmcli
+#    connection up` asked for root).
+# Nothing here reconnects: a reconnect drops the link for a few seconds, and the deploy may itself run over that
+# Wi-Fi. The last task names each link that still has power save on and the command that applies it.
+# Revert: hk_wifi_powersave: true (removes the drop-in), hk_wifi_reconnect_polkit: false (removes the rule).
+- name: Is NetworkManager installed?
+  ansible.builtin.stat:
+    path: "{{ cabinet_nm_binary }}"
+  register: cabinet_nm_stat
+
+- name: Is there a polkit rules directory?
+  ansible.builtin.stat:
+    path: "{{ cabinet_net_polkit_file | dirname }}"
+  register: cabinet_polkit_dir_stat
+
+- name: NetworkManager present or not
+  ansible.builtin.set_fact:
+    cabinet_nm_present: "{{ cabinet_nm_stat.stat.exists }}"
+
+- name: Say that the Wi-Fi tuning is skipped without NetworkManager
+  ansible.builtin.debug:
+    msg: "SKIP Wi-Fi power save + reconnect rule (#213): NetworkManager is not installed on {{ inventory_hostname }} ({{ cabinet_nm_binary }} missing). Nothing written."
+  when: not cabinet_nm_present
+
+- name: Wi-Fi power save off for every Wi-Fi network (NetworkManager drop-in)
+  ansible.builtin.copy:
+    dest: "{{ cabinet_nm_dropin }}"
+    content: |
+      # Managed by coin-dojo ansible cabinet_tweaks (#213, hk_wifi_powersave). 2 = power save off, for every Wi-Fi
+      # connection whose own 802-11-wireless.powersave is 0 (default). Applies at the connection's next activation.
+      [connection]
+      wifi.powersave = 2
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: cabinet_nm_present and not cabinet_wifi_powersave | bool
+  notify: reload networkmanager conf
+
+- name: No power-save drop-in when hk_wifi_powersave is on (NetworkManager default)
+  ansible.builtin.file:
+    path: "{{ cabinet_nm_dropin }}"
+    state: absent
+  become: true
+  when: cabinet_nm_present and cabinet_wifi_powersave | bool
+  notify: reload networkmanager conf
+
+- name: Polkit - the cabinet user may run NetworkManager network-control from any session (reconnect without sudo)
+  ansible.builtin.template:
+    src: 51-coin-dojo-net.rules.j2
+    dest: "{{ cabinet_net_polkit_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: cabinet_nm_present and cabinet_wifi_reconnect_polkit | bool and cabinet_polkit_dir_stat.stat.isdir | default(false)
+
+- name: No reconnect polkit rule when hk_wifi_reconnect_polkit is false
+  ansible.builtin.file:
+    path: "{{ cabinet_net_polkit_file }}"
+    state: absent
+  become: true
+  when: cabinet_nm_present and not cabinet_wifi_reconnect_polkit | bool
+
+- name: Warn when polkit has no rules directory
+  ansible.builtin.debug:
+    msg: "WARN no {{ cabinet_net_polkit_file | dirname }} (polkit not installed?): reconnects over SSH still need sudo."
+  when: cabinet_nm_present and cabinet_wifi_reconnect_polkit | bool and not (cabinet_polkit_dir_stat.stat.isdir | default(false))
+
+# Read-only: "<device> <on|off|unknown> <connection uuid>" for each connected Wi-Fi device (iw reads the live state).
+- name: Read Wi-Fi power save on the live links
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      iw=$(command -v iw || echo /usr/sbin/iw)
+      nmcli -t -f DEVICE,TYPE,STATE device | awk -F: '$2 == "wifi" && $3 ~ /^connected/ { print $1 }' |
+        while read -r dev; do
+          ps=$("$iw" dev "$dev" get power_save 2>/dev/null | awk '{ print $NF }')
+          echo "$dev ${ps:-unknown} $(nmcli -g GENERAL.CON-UUID device show "$dev" 2>/dev/null)"
+        done
+    executable: /bin/bash
+  register: cabinet_wifi_links
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: cabinet_nm_present and not coin_dojo_image | default(false) | bool   # #244: an image has no live link
+
+- name: Name each Wi-Fi link that still has power save on, and how to apply the drop-in now
+  ansible.builtin.debug:
+    msg: >-
+      WARN Wi-Fi {{ item.split()[0] }}: power save is still on. The drop-in applies at the next reconnect (or this
+      connection sets its own powersave: nmcli connection modify uuid {{ item.split()[2] | default('?') }}
+      802-11-wireless.powersave 0). To apply now without sudo (the link drops for a few seconds; nohup keeps it going
+      when this SSH session drops), on the cabinet: nohup nmcli connection up uuid {{ item.split()[2] | default('?') }}
+      >/dev/null 2>&1 &
+  loop: "{{ cabinet_wifi_links.stdout_lines | default([]) | select('search', '^\\S+ on( |$)') | list }}"
+  when: cabinet_nm_present and not cabinet_wifi_powersave | bool

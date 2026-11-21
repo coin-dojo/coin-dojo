@@ -1,0 +1,44 @@
+diff --git a/core/ui/gui.cpp b/core/ui/gui.cpp
+index 212f973..8a470ac 100644
+--- a/core/ui/gui.cpp
++++ b/core/ui/gui.cpp
+@@ -1453,10 +1453,17 @@ void gui_draw_osd()
+ 	gui_newFrame();
+ 	ImGui::NewFrame();
+ 
++	// coin-dojo: FLYCAST_FPS_TOPRIGHT=1 draws the counter top right inside the insets, cyan #36d6e7 on indigo,
++	// like the cabinet's RetroArch benchmark counter. Notifications (achievement popups, the never-ending
++	// leaderboard/challenge trackers, toasts) sit bottom left, so up there the counter stays on beside them.
++	static const bool topRight = [] { const char *v = std::getenv("FLYCAST_FPS_TOPRIGHT"); return v != nullptr && v[0] == '1'; }();
++	bool notified = false;
+ #ifdef USE_RACHIEVEMENTS
+-	if (!achievements::notifier.draw())
++	notified = achievements::notifier.draw();
+ #endif
+-		if (!toast.draw())
++	if (!notified)
++		notified = toast.draw();
++	if (!notified || topRight)
+ 		{
+ 			std::string message = getFPSNotification();
+ 			if (!message.empty())
+@@ -1468,10 +1475,17 @@ void gui_draw_osd()
+ 						+ padding * 2.f;
+ 				ImVec2 pos(insetLeft, ImGui::GetIO().DisplaySize.y - size.y);
+ 				constexpr float alpha = 0.7f;
+-				const ImU32 bg_col = alphaOverride(0x00202020, alpha / 2.f);
++				ImU32 bg_col = alphaOverride(0x00202020, alpha / 2.f);
++				ImU32 col = alphaOverride(0x0000FFFF, alpha);
++				if (topRight)
++				{
++					const ScaledVec2 margin(8.f, 8.f);
++					pos = ImVec2(ImGui::GetIO().DisplaySize.x - insetRight - margin.x - size.x, insetTop + margin.y);
++					bg_col = IM_COL32(10, 16, 56, 179);
++					col = IM_COL32(0x36, 0xd6, 0xe7, 255);
++				}
+ 				dl->AddRectFilled(pos, pos + size, bg_col, 0.f);
+ 				pos += padding;
+-				const ImU32 col = alphaOverride(0x0000FFFF, alpha);
+ 				dl->AddText(nullptr, uiLargeFontSize(), pos, col, &message.front(), &message.back() + 1, maxW);
+ 			}
+ 		}

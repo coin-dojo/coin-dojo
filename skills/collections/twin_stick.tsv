@@ -1,0 +1,11 @@
+# Twin-stick games: always in the GENRES/twin-stick folder, whatever their scraped genre says
+# (Robotron 64 and Super Smash T.V. are just "Shoot'em Up"/"Shooter" in their metadata). Coin Dojo #59.
+# Tab separated: system dir<TAB>ROM file name without extension. '#' lines are comments.
+# MUST MATCH skills/controls/controls.py TWIN_STICK (Input, the control layouts); a test cross-checks
+# both when both exist (tests/test_collgen.py test_twin_stick_matches_controls).
+fbneo	robotron
+fbneo	bwidow
+fbneo	smashtv
+fbneo	totcarn
+n64	Robotron 64
+snes	Super Smash T.V. (USA)

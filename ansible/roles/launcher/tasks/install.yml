@@ -1,0 +1,198 @@
+# Install launch.py. Order: local table check -> stage in a host /tmp dir -> py_compile + --check + the
+# per-system argv check (launch_expected.json) on the STAGED file -> required emulator files exist ->
+# (only if launch.py changes) backup dir + launch.py.prev -> install -> post-check on the installed file;
+# a failed post-check puts launch.py.prev back. Check mode writes only the /tmp staging dir (removed).
+
+- name: Local launch.py, its sha256
+  ansible.builtin.stat:
+    path: "{{ launcher_src }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: launcher_local
+
+- name: Local launch.py tables are sane (launch.py --check, before anything reaches the host)
+  ansible.builtin.command:
+    argv: ["{{ ansible_playbook_python }}", "{{ launcher_src }}", "--check"]
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+
+- name: Staging dir on the host (/tmp; removed at the end, also in check mode)
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: hk-launcher-
+  register: launcher_stage
+  changed_when: false        # scratch on the host's /tmp, not a deploy change
+  check_mode: false
+
+- name: Stage launch.py, launch_check.py, launch_expected.json
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ launcher_stage.path }}/{{ item | basename }}"
+    mode: "0755"
+  loop: ["{{ launcher_src }}", "{{ launcher_check_src }}", "{{ launcher_expected_src }}"]
+  changed_when: false
+  check_mode: false
+
+- name: Gates on the staged file (py_compile, --check, argv per system), then install
+  block:
+    - name: Python3 -m py_compile on the host's python
+      ansible.builtin.command:
+        argv: ["{{ launcher_python }}", "-m", "py_compile", "{{ launcher_stage.path }}/launch.py"]
+      changed_when: false
+      check_mode: false
+
+    - name: Staged launch.py --check
+      ansible.builtin.command:
+        argv: ["{{ launcher_python }}", "{{ launcher_stage.path }}/launch.py", "--check"]
+      changed_when: false
+      check_mode: false
+
+    - name: Staged launch.py builds the expected argv for every system (no emulator runs)
+      ansible.builtin.command:
+        argv: ["{{ launcher_python }}", "-I", "{{ launcher_stage.path }}/launch_check.py",
+               "--launcher", "{{ launcher_stage.path }}/launch.py",
+               "--expected", "{{ launcher_stage.path }}/launch_expected.json", "--python", "{{ launcher_python }}"]
+      register: launcher_gate
+      changed_when: false
+      check_mode: false
+
+    - name: Gate result
+      ansible.builtin.debug:
+        msg: "{{ launcher_gate.stdout_lines | last }}"
+
+    - name: Emulator files the new launch.py names
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: launcher_required
+      loop: "{{ launcher_require_files }}"
+
+    - name: Refuse a launch.py whose emulator is missing (run the retroarch122 role first)
+      ansible.builtin.assert:
+        that: launcher_required.results | rejectattr('stat.exists') | list | length == 0
+        fail_msg: "missing on the host: {{ launcher_required.results | rejectattr('stat.exists') | map(attribute='item') | join(', ') }}"
+        quiet: true
+
+    - name: The live launch.py
+      ansible.builtin.stat:
+        path: "{{ launcher_dest }}"
+        checksum_algorithm: sha256
+      register: launcher_live
+
+    - name: Is the live file the hot-patched one, and does it match the expected argv? (report)
+      ansible.builtin.command:
+        argv: ["{{ launcher_python }}", "-I", "{{ launcher_stage.path }}/launch_check.py",
+               "--launcher", "{{ launcher_dest }}",
+               "--expected", "{{ launcher_stage.path }}/launch_expected.json", "--python", "{{ launcher_python }}"]
+      register: launcher_live_check
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: launcher_live.stat.exists
+
+    - name: Plan
+      ansible.builtin.set_fact:
+        launcher_changes: "{{ not launcher_live.stat.exists or launcher_live.stat.checksum != launcher_local.stat.checksum }}"
+        launcher_installed: false
+        launcher_backup_dir: "{{ launcher_backup_root }}/{{ launcher_stamp }}-launch"
+
+    - name: Report before
+      ansible.builtin.debug:
+        msg:
+          - "live    {{ launcher_dest }} sha256={{ launcher_live.stat.checksum | default('(none)') }}"
+          - "live argv check: {{ (launcher_live_check.stdout_lines | default(['(no live file)'])) | last }}"
+          - "new     {{ launcher_src | basename }} sha256={{ launcher_local.stat.checksum }}"
+          - "{{ 'WILL INSTALL; backup ' ~ launcher_backup_dir ~ '/launch.py and ' ~ launcher_prev if launcher_changes else 'up to date: nothing to do' }}"
+
+    - name: Scripts dir exists
+      ansible.builtin.file:
+        path: "{{ launcher_dest | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Backup dir
+      ansible.builtin.file:
+        path: "{{ launcher_backup_dir }}"
+        state: directory
+        mode: "0755"
+      when: launcher_changes and launcher_live.stat.exists
+
+    # (check mode: the dir above is not really made, so this copy runs only for real)
+    - name: Back up the live launch.py into the backup dir
+      ansible.builtin.copy:
+        src: "{{ launcher_dest }}"
+        dest: "{{ launcher_backup_dir }}/launch.py"
+        remote_src: true
+        mode: preserve
+      when: launcher_changes and launcher_live.stat.exists and not ansible_check_mode
+
+    - name: Keep the live launch.py as launch.py.prev (make launch-rollback restores it)
+      ansible.builtin.copy:
+        src: "{{ launcher_dest }}"
+        dest: "{{ launcher_prev }}"
+        remote_src: true
+        mode: preserve
+      when: launcher_changes and launcher_live.stat.exists
+
+    - name: Install launch.py
+      ansible.builtin.copy:
+        src: "{{ launcher_src }}"
+        dest: "{{ launcher_dest }}"
+        mode: "0755"
+      register: launcher_install
+
+    - name: Remember the install (a failed post-check restores launch.py.prev only after this)
+      ansible.builtin.set_fact:
+        launcher_installed: "{{ launcher_install is changed and not ansible_check_mode }}"
+
+    - name: Post-check the installed launch.py (argv per system)
+      ansible.builtin.command:
+        argv: ["{{ launcher_python }}", "-I", "{{ launcher_stage.path }}/launch_check.py",
+               "--launcher", "{{ launcher_dest }}",
+               "--expected", "{{ launcher_post_expected | default(launcher_stage.path ~ '/launch_expected.json') }}",
+               "--python", "{{ launcher_python }}"]
+      register: launcher_post
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Installed launch.py has the pinned content
+      ansible.builtin.stat:
+        path: "{{ launcher_dest }}"
+        checksum_algorithm: sha256
+      register: launcher_after
+      failed_when: launcher_after.stat.checksum != launcher_local.stat.checksum
+      when: not ansible_check_mode
+
+    - name: Report after
+      ansible.builtin.debug:
+        msg:
+          - "installed sha256={{ launcher_after.stat.checksum }} ({{ launcher_post.stdout_lines | last }})"
+          - "prev      {{ launcher_prev }} (make launch-rollback APPLY=1 restores it)"
+          - "no ES-DE restart needed: the next game runs the new launch.py"
+      when: not ansible_check_mode
+
+  rescue:
+    - name: Put launch.py.prev back after a failed post-check
+      ansible.builtin.copy:
+        src: "{{ launcher_prev }}"
+        dest: "{{ launcher_dest }}"
+        remote_src: true
+        mode: preserve
+      when: launcher_installed | default(false) | bool
+
+    - name: Fail (nothing installed, or launch.py.prev restored)
+      ansible.builtin.fail:
+        msg: >-
+          launch.py deploy FAILED at '{{ ansible_failed_task.name }}':
+          {{ (ansible_failed_result.stdout_lines | default([]) | select('search', 'FAIL') | list | join('; ')) or ansible_failed_result.msg | default('') }}.
+          {{ 'launch.py.prev was put back.' if launcher_installed | default(false) | bool else 'The live launch.py was not changed.' }}
+
+  always:
+    - name: Remove the staging dir
+      ansible.builtin.file:
+        path: "{{ launcher_stage.path }}"
+        state: absent
+      changed_when: false
+      check_mode: false

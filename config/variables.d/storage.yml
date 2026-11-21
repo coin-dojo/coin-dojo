@@ -1,0 +1,72 @@
+# Area: storage. How much the SD card gives to the journal, to swap, and what the disk hygiene role may remove. Defaults are today's live values (journald drop-in, rpi-swap drop-in, diskhygiene).
+area: storage
+description: Journal size and retention, zram swap, which package groups and themes diskhygiene removes.
+variables:
+  hk_journal_max_use:
+    type: str
+    default: 50M
+    pattern: "[1-9][0-9]*[KMGT]"
+    description: >-
+      Most disk the systemd journal may use (journald SystemMaxUse=). A number and a unit K, M, G or T. 50M holds many
+      boots of the cabinet (a boot is about 5M) and spares the SD card.
+    example: 100M
+    consumers: [ansible/roles/journald]
+  hk_journal_keep_free:
+    type: str
+    default: 500M
+    pattern: "[1-9][0-9]*[KMGT]"
+    description: >-
+      Free space journald leaves on the root filesystem (SystemKeepFree=); it stops growing below this. Keep it under
+      what your card has free, or the cap shrinks to nothing and the previous boot is vacuumed away.
+    example: 1G
+    consumers: [ansible/roles/journald]
+  hk_journal_retention:
+    type: str
+    default: 1month
+    pattern: "[1-9][0-9]*(s|m|h|d|w|month|year)"
+    description: >-
+      Drop journal entries older than this even when under the size cap (MaxRetentionSec=). A number and one of s, m,
+      h, d, w, month, year.
+    example: 2week
+    consumers: [ansible/roles/journald]
+  hk_swap:
+    type: map
+    default: {mechanism: zram, ram_multiplier: 1, max_mib: 2048}
+    fields:
+      mechanism: {type: enum, allowed: [zram, zram+file, auto]}
+      ram_multiplier: {type: float, min: 0.1, max: 4}
+      max_mib: {type: int, min: 64, max: 65536}
+    description: >-
+      Swap of the cabinet (Raspberry Pi OS rpi-swap + systemd-zram-generator). mechanism: zram is RAM only, with no swap
+      file on the SD card; zram+file adds a writeback file on the card; auto leaves it to the distro. ram_multiplier:
+      zram size as a multiple of RAM. max_mib: cap of the zram device in MiB (2048 shows as 1.9G on a 2 GB Pi 5). Set one
+      key and keep the rest (`hk_swap: {max_mib: 1024}`).
+    consumers: [ansible/roles/cabinet_tweaks]
+  hk_vm_swappiness:
+    type: int
+    default: 1
+    min: 0
+    max: 200
+    description: >-
+      Kernel vm.swappiness, set permanently in /etc/sysctl.d/99-zz-coin-dojo.conf (#209; sorts after 98-rpi.conf). 1 = swap only under real memory
+      pressure: it removed a 144 ms swap-in hitch in the Fightcade run (#92) and keeps ES-DE in RAM too. The Debian
+      default is 60.
+    consumers: [ansible/roles/session]
+  hk_purge_groups:
+    type: list
+    items: str
+    default: [toolchain]
+    description: >-
+      Package groups the diskhygiene role removes (apt purge) on a deploy that applies. The groups are defined in the
+      role (toolchain, firmware_other_chips, mkvtoolnix, rpi_connect); each one is simulated first and the plan fails
+      when it would remove more than it lists or a protected package. Empty: plan and report only.
+    example: "[toolchain, mkvtoolnix]"
+    consumers: [ansible/roles/diskhygiene]
+  hk_theme_keep:
+    type: str
+    default: "{{ hk_theme_name }}"
+    pattern: "[a-z0-9][a-z0-9._-]*"
+    description: >-
+      The one ES-DE theme folder on the cabinet that diskhygiene never removes. Follows the active theme; the role
+      refuses to run when it is on its removal list.
+    consumers: [ansible/roles/diskhygiene]

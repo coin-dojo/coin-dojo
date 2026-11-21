@@ -1,0 +1,7 @@
+Nov 14 06:10:24 Info:   ES-DE 3.5.0 (r52), built Sep 25 2026 - 16:29:22
+Nov 14 06:10:24 Warn:   Could not enable VSync: That operation is not supported
+Nov 14 06:10:24 Error:  Unable to open audio device: ALSA: Couldn't open audio device: No such file or directory
+Nov 14 06:10:24 Info:   Checking for available themes...
+Nov 14 06:10:24 Info:   Added theme "/preview/home/ES-DE/themes/coin-dojo" ("Coin Dojo")
+Nov 14 06:11:33 Error:  ThemeData::parseIncludes(): "/preview/home/ES-DE/themes/coin-dojo/theme.xml" -> "./colors.xml": Error parsing file: Error parsing start element tag (system "cps1", theme "cps1")
+Nov 14 06:11:33 Info:   Finished loading theme "coin-dojo"

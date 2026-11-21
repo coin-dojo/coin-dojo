@@ -1,0 +1,19 @@
+# gitleaks (make secrets, #124): default rules + one coin-dojo test rule. Every allowlist entry needs a reason.
+[extend]
+useDefault = true
+
+# A rule that exists only so tools/tests/test_lint.py can plant an OBVIOUSLY FAKE token and prove the scan fails.
+# The prefix is not any vendor's; nothing real can match it.
+[[rules]]
+id = "coin-dojo-planted-test-token"
+description = "planted fake token used by tools/tests/test_lint.py"
+regex = '''HKFAKE-NOT-A-SECRET-[A-Z0-9]{12}'''
+keywords = ["hkfake-not-a-secret"]
+
+# tools/tests/test_tickets.py plants fake credentials ("curl -u bot:hunter22 ...") to prove the ticket tool refuses
+# them. Allowed by the exact fake literal in the MATCH only (a different secret on the same line still hits): no path entry (gitleaks ORs paths and regexes, so a path would let a
+# real key through anywhere under it, history included; security review 2026-11-09). A real key on that line still hits.
+[allowlist]
+description = "obviously fake credentials planted by tools/tests/test_tickets.py"
+regexTarget = "match"
+regexes = ['''bot:hunter22''', '''FORGEJO_TOKEN=abcdef123456''']

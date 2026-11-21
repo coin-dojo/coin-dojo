@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# coin-dojo arcade-pack deploy wrapper. Thin, safe front end over ansible-playbook.
+#
+#   bin/deploy check [tags...]     dry-run everything (or just the tagged roles)   [SAFE DEFAULT]
+#   bin/deploy apply [tags...]     apply everything (or just the tagged roles)
+#   bin/deploy ping                SSH reachability check (ansible -m ping)
+#   bin/deploy -- <raw args>       pass raw args to ansible-playbook site.yml
+#
+# The sudo password is read from the macOS Keychain or the environment and passed WITHOUT appearing in
+# the process list or in git (env COIN_DOJO_BECOME_PASS, else the Keychain item hk_become_keychain names). SSH is key
+# auth only.
+#
+# Requires: Docker (Colima) only. Ansible, rsync and sshpass run in the pinned container (bin/ans,
+# Dockerfile; ticket #90); nothing is installed on the host. See README.md.
+set -eu
+
+HERE=$(cd "$(dirname "$0")/.." && pwd)   # the ansible/ dir
+cd "$HERE"
+ANS=${DEPLOY_ANS:-$HERE/bin/ans}   # DEPLOY_ANS: tests point it at a stub
+CACHE=${ANS_CACHE:-${HK_CACHE:-$HOME/.cache/coin-dojo}/ansible}   # mounted at the same path by bin/ans (#142: one cache root)
+
+die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
+
+# --- Stale sudo vars files (#140) ---------------------------------------------------------------
+# The vars file lives in a per-run 0700 dir under $CACHE/runs and the EXIT trap removes it, but SIGKILL (or a crash)
+# skips the trap. So every run first deletes per-run dirs (and old-layout $CACHE/coin-dojo-vars.* files) older than a
+# day; a younger one may belong to a deploy running right now and is kept.
+RUNS="$CACHE/runs"
+prune_stale() {
+  if [ -d "$CACHE" ]; then
+    find "$CACHE" -maxdepth 1 -type f -name 'coin-dojo-vars.*' -mmin +1440 -exec rm -f {} + 2>/dev/null || true
+  fi
+  if [ -d "$RUNS" ]; then
+    find "$RUNS" -mindepth 1 -maxdepth 1 -name 'run.*' -mmin +1440 -exec rm -rf {} + 2>/dev/null || true
+  fi
+}
+prune_stale
+
+# --- Configuration (#118): validate, then render the effective vars + the inventory host from config ---------
+# tools/config.py (config/variables.d, targets, local file, HK_SET) is the single source for the cabinet's address,
+# user and sudo-password lookup. A bad config stops here, before Ansible runs. DEPLOY_NO_CONFIG=1 (tests with a stub
+# DEPLOY_ANS) skips it.
+REPO=$(cd "$HERE/.." && pwd)
+cfg_python() {
+  if [ -n "${CONFIG_PYTHON:-}" ]; then echo "$CONFIG_PYTHON"
+  elif [ -x "$HOME/.venvs/coin-dojo/bin/python" ]; then echo "$HOME/.venvs/coin-dojo/bin/python"
+  else echo python3; fi
+}
+cfg() { "$(cfg_python)" "$REPO/tools/config.py" "$@"; }
+
+# --- Keychain helpers (macOS). Never echo the value. -------------------------------------------
+kc() { security find-generic-password -s "$1" -w 2>/dev/null || true; }
+
+# --- Secure extra-vars file for the sudo password (kept OUT of argv / ps) -----------------
+# sudo (become) password: env COIN_DOJO_BECOME_PASS, else the Keychain item hk_become_keychain names. When it is found,
+# `--ask-become-pass` is dropped from the arguments: a prompt can't be answered without a TTY (bin/ans
+# only attaches stdin to a terminal), which made unattended BECOME=1 runs fail with "Missing sudo password".
+: "${COIN_DOJO_BECOME_PASS:=}"
+if [ "${DEPLOY_NO_CONFIG:-0}" != 1 ]; then
+  # Only a successful `get` counts: on a broken config it prints its RESULT line on stdout, which must never become
+  # a variable or Keychain name (#133: bash 5 aborted on `${!BECOME_ENV}`; the config gate below names the problem).
+  BECOME_ENV=$(cfg get --limit "${DEPLOY_LIMIT:-coin-dojo}" hk_become_env 2>/dev/null) || BECOME_ENV=
+  case $BECOME_ENV in ''|[0-9]*|*[!A-Za-z0-9_]*) BECOME_ENV=COIN_DOJO_BECOME_PASS ;; esac
+  BECOME_KC=$(cfg get --limit "${DEPLOY_LIMIT:-coin-dojo}" hk_become_keychain 2>/dev/null) || BECOME_KC=
+  case $BECOME_KC in *"
+"*) BECOME_KC= ;; esac
+  [ -n "${!BECOME_ENV:-}" ] && COIN_DOJO_BECOME_PASS=${!BECOME_ENV}
+else BECOME_KC=; fi   # no config (stubbed tests): no Keychain name to look up, only the environment
+if [ -z "$COIN_DOJO_BECOME_PASS" ] && [ -n "${BECOME_KC:-}" ] && command -v security >/dev/null 2>&1; then
+  COIN_DOJO_BECOME_PASS=$(kc "$BECOME_KC")
+fi
+# RetroAchievements login token (#45): env COIN_DOJO_CHEEVOS_TOKEN, else the Keychain item hk_cheevos_keychain names
+# (empty = none). It rides in the same private vars file as `cheevos_token`; the roles write it with no_log.
+: "${COIN_DOJO_CHEEVOS_TOKEN:=}"
+if [ -z "$COIN_DOJO_CHEEVOS_TOKEN" ] && [ "${DEPLOY_NO_CONFIG:-0}" != 1 ] && command -v security >/dev/null 2>&1; then
+  CHEEVOS_KC=$(cfg get --limit "${DEPLOY_LIMIT:-coin-dojo}" hk_cheevos_keychain 2>/dev/null) || CHEEVOS_KC=
+  case $CHEEVOS_KC in *"
+"*) CHEEVOS_KC= ;; esac
+  [ -n "$CHEEVOS_KC" ] && COIN_DOJO_CHEEVOS_TOKEN=$(kc "$CHEEVOS_KC")
+fi
+# RetroAchievements Web API key for the TROPHIES page (#176): env COIN_DOJO_CHEEVOS_WEB_KEY, else the Keychain item
+# hk_cheevos_web_keychain names. Same private vars file, as `cheevos_web_key`; the settings role writes it no_log.
+: "${COIN_DOJO_CHEEVOS_WEB_KEY:=}"
+if [ -z "$COIN_DOJO_CHEEVOS_WEB_KEY" ] && [ "${DEPLOY_NO_CONFIG:-0}" != 1 ] && command -v security >/dev/null 2>&1; then
+  WEB_KC=$(cfg get --limit "${DEPLOY_LIMIT:-coin-dojo}" hk_cheevos_web_keychain 2>/dev/null) || WEB_KC=
+  case $WEB_KC in *"
+"*) WEB_KC= ;; esac
+  [ -n "$WEB_KC" ] && COIN_DOJO_CHEEVOS_WEB_KEY=$(kc "$WEB_KC")
+fi
+# Raw mode (`--`) names its host with --limit (make deploy adds it); the other commands use DEPLOY_LIMIT.
+LIMIT=${DEPLOY_LIMIT:-coin-dojo}
+prev=""; for a in "$@"; do if [ "$prev" = "--limit" ]; then LIMIT=$a; fi; prev=$a; done
+EXTRA=()
+CFGDIR=""
+if [ "${DEPLOY_NO_CONFIG:-0}" != 1 ]; then
+  case "$LIMIT" in coin-dojo|coin-dojo-vm) ;; *) die "DEPLOY_LIMIT must be coin-dojo or coin-dojo-vm (got '$LIMIT')" ;; esac
+  mkdir -p "$CACHE"; chmod 700 "$CACHE"
+  CFGDIR="$CACHE/config"
+  cfg render --limit "$LIMIT" --out "$CFGDIR" >/dev/null || die "the configuration is invalid (make config-check shows why)"
+  EXTRA+=(-e "@$CFGDIR/effective-$LIMIT.json")
+  export ANSIBLE_INVENTORY="$HERE/inventory/hosts.yml,$HERE/inventory/vm.yml,$CFGDIR/inventory-$LIMIT.yml"
+fi
+TMPVARS=""
+RUNDIR=""
+# shellcheck disable=SC2317  # called by the trap below
+cleanup() {   # must return 0 (bash 3.2 keeps it as exit code); an empty runs/ goes too
+  if [ -n "$RUNDIR" ]; then rm -rf "$RUNDIR"; rmdir "$RUNS" 2>/dev/null || true; fi
+}
+trap cleanup EXIT INT TERM
+if [ -n "$COIN_DOJO_BECOME_PASS" ] || [ -n "$COIN_DOJO_CHEEVOS_TOKEN" ] || [ -n "$COIN_DOJO_CHEEVOS_WEB_KEY" ]; then
+  # The file must sit under a path bin/ans mounts ($CACHE): a per-run 0700 dir (prune_stale above removes one a
+  # SIGKILL left behind), the file 0600 from the start (umask). JSON (valid YAML) so any character in a password is
+  # escaped; values come from the environment, never from argv.
+  mkdir -p "$RUNS"; chmod 700 "$CACHE" "$RUNS"
+  # a concurrent run's cleanup may rmdir an empty runs/ between the mkdir and mktemp: make it again and retry once
+  RUNDIR=$(mktemp -d "$RUNS/run.XXXXXX" 2>/dev/null) || { mkdir -p "$RUNS"; RUNDIR=$(mktemp -d "$RUNS/run.XXXXXX"); }
+  chmod 700 "$RUNDIR"
+  TMPVARS="$RUNDIR/coin-dojo-vars.json"
+  (umask 077; : > "$TMPVARS")
+  chmod 600 "$TMPVARS"
+  COIN_DOJO_BECOME_PASS="$COIN_DOJO_BECOME_PASS" COIN_DOJO_CHEEVOS_TOKEN="$COIN_DOJO_CHEEVOS_TOKEN" COIN_DOJO_CHEEVOS_WEB_KEY="$COIN_DOJO_CHEEVOS_WEB_KEY" python3 -I -c '
+import json, os, sys
+v = {}
+if os.environ["COIN_DOJO_BECOME_PASS"]:
+    v["ansible_become_password"] = os.environ["COIN_DOJO_BECOME_PASS"]
+if os.environ["COIN_DOJO_CHEEVOS_TOKEN"]:
+    v["cheevos_token"] = os.environ["COIN_DOJO_CHEEVOS_TOKEN"]
+if os.environ["COIN_DOJO_CHEEVOS_WEB_KEY"]:
+    v["cheevos_web_key"] = os.environ["COIN_DOJO_CHEEVOS_WEB_KEY"]
+sys.stdout.write(json.dumps(v))' > "$TMPVARS"
+  EXTRA+=(-e "@$TMPVARS")
+fi
+# Drop --ask-become-pass when the password is supplied through the vars file.
+if [ -n "$COIN_DOJO_BECOME_PASS" ]; then
+  ARGS=(); for a in "$@"; do [ "$a" = "--ask-become-pass" ] || [ "$a" = "-K" ] || ARGS+=("$a"); done
+  set -- ${ARGS[@]+"${ARGS[@]}"}
+fi
+
+cmd=${1:-check}; shift || true
+
+# Not `exec`: the EXIT trap must run so the password temp file is removed.
+run() { rc=0; "$ANS" "$@" || rc=$?; exit "$rc"; }
+# Every cabinet run is limited to one host: DEPLOY_LIMIT (default coin-dojo, the Debian card).
+# `--` raw mode passes args as given (make deploy adds --limit itself).
+LIMIT=${DEPLOY_LIMIT:-coin-dojo}
+# coin-dojo-vm = the test VM on the Mac (#82; group vm, vm.yml). make deploy/ping run vm-guard first.
+case "$LIMIT" in coin-dojo|coin-dojo-vm) ;; *) die "DEPLOY_LIMIT must be coin-dojo or coin-dojo-vm (got '$LIMIT')" ;; esac
+case "$cmd" in
+  check)
+    tags=(); [ $# -gt 0 ] && tags=(--tags "$(IFS=,; echo "$*")")
+    run ansible-playbook site.yml --check --diff --limit "$LIMIT" ${EXTRA[@]+"${EXTRA[@]}"} ${tags[@]+"${tags[@]}"}
+    ;;
+  apply)
+    tags=(); [ $# -gt 0 ] && tags=(--tags "$(IFS=,; echo "$*")")
+    run ansible-playbook site.yml --limit "$LIMIT" ${EXTRA[@]+"${EXTRA[@]}"} ${tags[@]+"${tags[@]}"}
+    ;;
+  ping)
+    run ansible "$LIMIT" -m ping ${EXTRA[@]+"${EXTRA[@]}"}
+    ;;
+  --)
+    run ansible-playbook site.yml ${EXTRA[@]+"${EXTRA[@]}"} "$@"
+    ;;
+  *)
+    die "unknown command '$cmd'. Try: check | apply | ping | -- <raw args>"
+    ;;
+esac

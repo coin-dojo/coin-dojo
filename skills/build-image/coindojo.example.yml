@@ -1,0 +1,35 @@
+# Coin Dojo first-boot settings (#237). Copy this file to coindojo.yml on the SD card's boot partition
+# (or pass CONFIG=your.yml to make image), fill in what you want, and boot. Every line is optional.
+# At first boot the cabinet applies it once, then deletes coindojo.yml and keeps coindojo.applied.yml
+# with the secrets (password_hash, wifi_psk) removed. A broken file is not applied: coindojo.error.txt
+# says why. One `key: value` per line; quote values that contain # or start with a quote.
+
+# The login that runs the games. Leave it empty: it must be the image's own user (hk_cabinet_user when the
+# image was built). Any other name is refused and nothing of this file is applied. Want another name? Set
+# hk_cabinet_user in your config before `make image`.
+user:
+
+# The password as a crypt hash, never in plain text. Make one with:  openssl passwd -6
+#   (or: mkpasswd -m yescrypt). Left empty: the community image keeps its default login, user coindojo
+#   (or your hk_cabinet_user) with password 12345, admin (sudo) off and SSH key-only. Your own password,
+#   given here or later in SETTINGS > PASSWORD, turns admin (sudo) and SSH by password on, for that user
+#   only (root never). Use a strong one: anyone on your network can try it. 12345 never opens SSH.
+#   passwd on the cabinet changes the login but turns nothing on. A personal image has no password then.
+#   The password is also for the console and the network folder (roms, bios; local subnets only).
+#   The default 12345 opens the network folder too: change it.
+password_hash:
+# Or ask for it on the cabinet screen at first boot (needs a keyboard on the cabinet; 5 minutes):
+# password: prompt
+
+# Your SSH public key, one line (cat ~/.ssh/id_ed25519.pub). Keys always work; passwords only once you set your own.
+ssh_pubkey:
+
+hostname:
+# A zone name from /usr/share/zoneinfo, e.g. Europe/Berlin, America/New_York.
+timezone:
+
+# Wi-Fi (Ethernet needs nothing). WPA2/WPA3 personal; leave wifi_psk empty for an open network.
+wifi_ssid:
+wifi_psk:
+# Two letters (US, DE, GB, ...): the radio stays off in some countries without it.
+wifi_country:

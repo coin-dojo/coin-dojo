@@ -1,0 +1,128 @@
+# Area: fightcade. Fightcade mode (#208, part B of #204): the Fightcade 2 lobby (native arm64 Electron) and its FBNeo
+# (x86 Windows exe, run by Box64 + Wine) in the session's cage. The game settings are the #92 measured winners and
+# are not levers; these are the few things an owner may want to move.
+area: fightcade
+description: Fightcade mode install and data folders, the Box64 speed flags, the lobby cursor and the audio sink.
+variables:
+  hk_fightcade_install_dir:
+    type: path
+    default: "{{ hk_fightcade_data_dir }}/opt"
+    description: >-
+      Where the Fightcade mode software is unpacked (Box64, Wine 10.0, Electron 9.1.0, Fightcade). Owned by the
+      cabinet user, who unpacks it during the deploy (sha256-checked); root never writes, runs or follows anything
+      there, and the launcher and helpers refuse to run it as root. It needs about 1.3 GB on that filesystem; the
+      deploy refuses a first install with less free. The default is on the data partition: the cabinet's root
+      filesystem is 6.9 GB with ~2.8 GB free (df 2026-11-17), /data ~11 GB free.
+    example: /opt/coin-dojo/fightcade
+    consumers: [ansible/roles/fightcade]
+  hk_fightcade_data_dir:
+    type: path
+    default: "{{ hk_data_root }}/fightcade"
+    description: >-
+      Fightcade's writable data, owned by the cabinet user: the base Wine prefix, the lobby login profile (0700,
+      never copied into images), roms-extra (room clones and the lobby's ROM downloads; ES-DE does not scan it),
+      FBNeo's config folder and logs.
+    consumers: [ansible/roles/fightcade]
+  hk_fightcade_box64_fast:
+    type: bool
+    default: false
+    description: >-
+      Run FBNeo with the Box64 speed flags from #92 (STRONGMEM=0, BIGBLOCK=3, SAFEFLAGS=0, FASTNAN, FASTROUND,
+      CALLRET, FORWARD=1024). Off until the #92 netplay determinism replay test passes: these flags can make the
+      emulation differ from a real x86 PC, and rollback netplay desyncs then. Option B (D3D9, csmt off) reached
+      59.59 fps on sfiii3 either way.
+    consumers: [ansible/roles/fightcade]
+  hk_fightcade_cursor_theme:
+    type: str
+    default: DMZ-White
+    pattern: "[A-Za-z0-9][A-Za-z0-9_.-]*"
+    description: >-
+      Cursor theme of the lobby only (XCURSOR_THEME for Electron), so the stick-as-mouse pointer can be seen. The rest
+      of the cabinet keeps the blank theme. DMZ-White comes from the dmz-cursor-theme package, which the role installs.
+    example: Adwaita
+    consumers: [ansible/roles/fightcade]
+  hk_fightcade_chat_macros:
+    type: list
+    items: map
+    max_items: 40
+    max_distinct: {group: 5}
+    fields:
+      group: {type: str, required: true, pattern: '(?!MINE$)[A-Z]([A-Z0-9 ]{0,12}[A-Z0-9])?'}
+      text: {type: str, required: true, pattern: '[^\x00-\x1f\x7f\s]([^\x00-\x1f\x7f]{0,58}[^\x00-\x1f\x7f\s])?'}
+    default:
+      - {group: CHALLENGE, text: "FT2?"}
+      - {group: CHALLENGE, text: "FT3?"}
+      - {group: CHALLENGE, text: "FT5?"}
+      - {group: CHALLENGE, text: "FT10?"}
+      - {group: CHALLENGE, text: "ranked?"}
+      - {group: CHALLENGE, text: "unranked?"}
+      - {group: CHALLENGE, text: "casuals?"}
+      - {group: AFTER, text: "gg"}
+      - {group: AFTER, text: "ggs"}
+      - {group: AFTER, text: "rematch?"}
+      - {group: AFTER, text: "one more?"}
+      - {group: AFTER, text: "ty"}
+      - {group: AFTER, text: "glhf"}
+      - {group: STATUS, text: "brb"}
+      - {group: STATUS, text: "afk"}
+      - {group: STATUS, text: "sorry, lag"}
+    description: >-
+      Chat macros of the lobby's on-screen keyboard (#227): one press on the MACROS page types the line into the focused
+      field (START sends it). A list of {group, text}; groups become tabs in order of first use (at most 5, 1-14 capitals/digits/spaces
+      each, no trailing space; MINE is the player's own tab and cannot be used), a line is 1-60 characters without control characters or leading/trailing spaces, 40 lines at most, and both `group` and `text` are required.
+      The defaults are Fightcade's lobby lingo (not verified against Fightcade's own help). Your own list goes in
+      config/local.yml (a deploy and an image build both read it); the macros a player SAVEs on the cabinet are a separate
+      file (/data/fightcade/macros.json) that no deploy writes.
+    example: [{group: CHALLENGE, text: "FT3?"}, {group: AFTER, text: "gg"}]
+    consumers: [ansible/roles/fightcade]
+  hk_fightcade_binfmt:
+    type: bool
+    default: true
+    description: >-
+      Register a binfmt_misc handler (hk-wine, /etc/binfmt.d/coin-dojo-wine.conf) that runs Windows .exe files
+      through Box64 + Wine. Fightcade's lobby starts FBNeo by running its .exe directly, so TEST GAME, TRAINING and
+      every match need it. Any executable .exe on the cabinet then runs under Wine as the user who starts it (never
+      as root: the wrapper refuses). false unregisters the handler and deletes its file on the next deploy; the
+      lobby then cannot start games.
+    consumers: [ansible/roles/fightcade]
+  hk_image_fightcade:
+    type: bool
+    default: true
+    description: >-
+      Put Fightcade mode into the image `make image` builds (#244): Box64 (`make -C build box64`, ~10 min) and the
+      sha256-pinned Wine 10.0, Electron 9.1.0 and Fightcade downloads (`make -C build fightcade`) are installed from
+      your own build folder, and the base Wine prefix is built during the image build; nothing is redistributed.
+      The boot menu then offers FIGHTCADE. Off = an image without Fightcade mode (the boot menu shows only ARCADE);
+      a deploy can add it later. On, the image's data partition is at least 3072 MiB (the install + the Wine prefix need ~2.1 GB).
+      With `hk_fightcade_install: first-launch` (#267) the image holds none of the Wine, Electron or Fightcade files
+      (only Box64 and coin-dojo's own pieces, no build/fightcade needed, no data partition bump): the cabinet downloads
+      them the first time FIGHTCADE is picked.
+    consumers: [ansible/image.yml, skills/build-image/scripts/run.sh]
+  hk_fightcade_install:
+    type: enum
+    allowed: [deploy, first-launch]
+    default: deploy
+    description: >-
+      How the third-party Fightcade software (Wine 10.0, Electron 9.1.0, Fightcade 2.1.45, pinned in
+      build/fightcade/pins.json) reaches the cabinet. `deploy`: the deploy (or `make image`) installs it from your own
+      `make -C build fightcade` and builds the Wine prefix. `first-launch` (#267): the deploy or image installs only
+      coin-dojo's own pieces (launcher, Box64, configs) and none of those binaries; the first time the player picks
+      FIGHTCADE, a full-screen consent and progress screen downloads them from their official https URLs (about
+      292 MiB, sha256-checked), unpacks them and builds the prefix (a few minutes, needs internet and about 2.1 GiB
+      free on the data partition). Use first-launch for an image you hand to other people: it holds no Fightcade
+      binaries.
+    consumers: [ansible/roles/fightcade, skills/build-image/scripts/run.sh]
+  hk_fightcade_audio_sink:
+    type: str
+    default: auto
+    pattern: "[A-Za-z0-9][A-Za-z0-9_.:-]*"
+    description: >-
+      The PulseAudio sink Fightcade mode (the lobby and FBNeo) plays to, set as PULSE_SINK for those processes only;
+      ES-DE and RetroArch keep the system default. The image's default sink is `combined` (module-combine-sink over
+      both HDMI outputs, skills/build-image/scripts/chroot-setup.sh), whose rate adaptation made FBNeo's audio
+      crackle (#233, cabinet 2026-11-18). `auto` picks the HDMI sink: the only one, or the one whose connector
+      (/sys/class/drm/card*-HDMI-A-N) is connected, matched by its ALSA card vc4-hdmi-(N-1); if that is not exactly
+      one, it keeps the default and logs why. `default` never overrides. Any other value is a sink name from
+      `pactl list short sinks`; one that does not exist keeps the default and logs a warning.
+    example: alsa_output.platform-107c706400.hdmi.hdmi-stereo
+    consumers: [ansible/roles/fightcade]

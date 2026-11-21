@@ -1,0 +1,51 @@
+# Area: paths. Where things live on the cabinet. The roots derive from hk_data_root; override one root or all.
+area: paths
+description: Directories on the cabinet (ROMs, media, BIOS, tools, ES-DE).
+variables:
+  hk_data_root:
+    type: path
+    default: /data
+    description: The data disk on the cabinet; the other roots default to folders below it.
+    consumers: [ansible/roles/vm_base]
+  hk_rom_root:
+    type: path
+    default: "{{ hk_data_root }}/roms"
+    description: Where the ROMs live (one folder per system).
+    consumers: [ansible/roles/esde_common, ansible/roles/esde_collections]
+    exports: [esde_rom_root]
+  hk_media_root:
+    type: path
+    default: "{{ hk_data_root }}/media"
+    description: ES-DE downloaded media (box art, videos, marquees).
+    consumers: [ansible/roles/esde_common, ansible/roles/esde_collections]
+    exports: [esde_media_root]
+  hk_nested_root:
+    type: path
+    default: "{{ hk_data_root }}/nested"
+    description: Root of the nested ROM tree the main-screen collections point ES-DE at (es_systems.xml <path>).
+    consumers: [ansible/roles/esde_collections, ansible/roles/settings]
+    exports: [esde_nested_root, settings_carousel_root]
+  hk_bios_root:
+    type: path
+    default: "{{ hk_data_root }}/bios"
+    description: BIOS files on the cabinet (never in git).
+    consumers: [ansible/roles/dreamcast]
+    exports: {dreamcast_bios_dir: "{{ hk_bios_root }}/dc"}
+  hk_tools_dir:
+    type: path
+    default: "{{ hk_data_root }}/coin-dojo"
+    description: The collections workspace on the cabinet (tools, picks, dat, folder art, nested_out).
+    consumers: [ansible/roles/esde_common, ansible/roles/esde_collections, ansible/roles/settings]
+    exports: {coin_dojo_dir: "{{ hk_tools_dir }}", settings_dir: "{{ hk_tools_dir }}/settings"}
+  hk_cabinet_home:
+    type: path
+    default: "/home/{{ hk_cabinet_user }}"
+    description: Home directory of the cabinet user.
+    consumers: [ansible/roles/esde_common, ansible/roles/launcher, ansible/roles/dreamcast, ansible/roles/retroarch122]
+    exports: [esde_user_home, launcher_user_home]
+  hk_esde_home:
+    type: path
+    default: "{{ hk_cabinet_home }}/ES-DE"
+    description: ES-DE's data folder (gamelists, themes, custom_systems, scripts, logs).
+    consumers: [ansible/roles/esde_common, ansible/roles/esde_theme, ansible/roles/settings]
+    exports: [esde_home, settings_esde_home]

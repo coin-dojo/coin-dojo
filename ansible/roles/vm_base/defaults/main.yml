@@ -1,0 +1,51 @@
+# vm_base (#82): VM ONLY. Gives coin-dojo-vm what skills/build-image/scripts/chroot-setup.sh gives the
+# real card (packages, ES-DE, /data, base retroarch.cfg / .bash_profile / es_settings.xml), so the
+# cabinet roles (cabinet_tweaks, retroarch122, journald, sshd_keyonly) then run on it unchanged.
+# The play (vm.yml) asserts the host is coin-dojo-vm before this role runs; the role asserts it again.
+cabinet_user: coindojo
+cabinet_group: coindojo
+cabinet_home: "/home/{{ cabinet_user }}"
+
+vm_base_hostname: coin-dojo-vm
+
+# Debian 13 packages. cage/grim/wayvnc/wlr-randr = the headless session; retroarch = Debian's 1.20
+# (ES-DE's find rule and the 1.20-vs-1.22 comparison); libretro-nestopia = the smoke core (Debian has
+# no fbneo). xauth only for the XQuartz experiment (README "Watching").
+vm_base_packages:
+  - cage
+  - seatd
+  - grim
+  - wayvnc
+  - wlr-randr
+  - retroarch
+  - libretro-core-info
+  - libretro-nestopia
+  - libgl1-mesa-dri
+  - libgl1
+  - libegl1
+  - libgles2
+  - fonts-dejavu-core
+  - pulseaudio
+  - systemd-zram-generator
+  - curl
+  - ca-certificates
+  - xauth
+
+# ES-DE: the same upstream AppImage the image build installs (chroot-setup.sh), pinned by sha256
+# (downloaded 2026-11-14). Installed from upstream at provision time, never stored in the repo.
+vm_base_esde_url: https://packages.es-de.org/release/3.5.0/ES-DE_aarch64.AppImage
+vm_base_esde_sha256: b6d34657842db89628d5bc42ed465b605108b45cb1d16b15332d6c9f60136a4b
+vm_base_esde_dir: /opt/ES-DE
+
+# zram swap like the cabinet (cabinet_tweaks asserts /dev/zram in /proc/swaps). Pi OS gets zram from
+# rpi-swap; Debian's systemd-zram-generator needs this config.
+vm_base_zram_conf: |
+  # Managed by coin-dojo ansible vm_base (#82): zram0 like the cabinet's rpi-swap default.
+  [zram0]
+  zram-size = min(ram, 2048)
+  compression-algorithm = zstd
+
+vm_base_data_dirs: [/data, /data/roms, /data/roms/nes, /data/bios, /data/saves, /data/states, /data/media]
+
+vm_base_lib: /usr/local/lib/coin-dojo-vm
+vm_base_guest_src: "{{ hk_repo_root }}/vm/guest"

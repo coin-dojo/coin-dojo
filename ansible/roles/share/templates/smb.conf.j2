@@ -1,0 +1,63 @@
+# {{ ansible_managed | default('Managed by Ansible') }}: coin-dojo network folder (#266), role share.
+# Exactly two shares, the ROM and BIOS folders. Nothing else: no home folders, no printers.
+# Checked by smbconf_check.py before it is installed (SMB3, guest off, LAN interfaces, the live subnets only).
+# Login: the cabinet user and its Samba password (SETTINGS > PASSWORD sets or changes it, #271).
+[global]
+   server string = %h
+   workgroup = WORKGROUP
+   server role = standalone server
+   security = user
+   passdb backend = tdbsam
+   map to guest = never
+   restrict anonymous = 2
+   usershare max shares = 0
+   usershare allow guests = no
+   server min protocol = SMB3
+   server smb encrypt = desired
+   ntlm auth = ntlmv2-only
+   disable netbios = yes
+   smb ports = 445
+   interfaces = {{ share_interfaces | join(' ') }}
+   bind interfaces only = yes
+   load printers = no
+   printing = bsd
+   printcap name = /dev/null
+   disable spoolss = yes
+   follow symlinks = no
+   wide links = no
+   allow insecure wide links = no
+   logging = systemd
+   log level = 1
+   # macOS: resource forks and Finder metadata are streams, which streams_xattr keeps in the file's user xattrs,
+   # never ._file AppleDouble copies that the game menu would list as games. (fruit:resource = xattr refused a
+   # resource-fork write from Finder on the test VM; stream stores it and reads it back.)
+   vfs objects = fruit streams_xattr
+   fruit:resource = stream
+   fruit:metadata = stream
+   fruit:veto_appledouble = yes
+   fruit:delete_empty_adfiles = yes
+   delete veto files = yes
+   # Who may connect: loopback here; the include (written from the live eth0/wlan0 subnets + fe80::/10 by
+   # hosts_allow.py at every smbd start and network change) replaces it. Missing include = loopback only.
+   hosts deny = ALL
+   hosts allow = {{ share_hosts_base | join(' ') }}
+   include = {{ share_hosts_file }}
+{% for s in share_folders %}
+
+[{{ s.name }}]
+   comment = {{ s.comment }}
+   path = {{ s.path }}
+   browseable = yes
+   read only = no
+   guest ok = no
+   valid users = {{ share_user }}
+   write list = {{ share_user }}
+   force user = {{ share_user }}
+   force group = {{ share_group }}
+   create mask = 0644
+   force create mode = 0644
+   directory mask = 0755
+   force directory mode = 0755
+   inherit permissions = no
+   veto files = /{{ s.veto | join('/') }}/
+{% endfor %}

@@ -1,0 +1,92 @@
+#!/bin/bash
+# coin-dojo-cleanup (#209): leave nothing running between two modes of the cabinet session. Installed by the ansible
+# role `session` to /usr/local/bin/coin-dojo-cleanup; coin-dojo-session runs it after every mode, at its start and at
+# its end. Safe to run by hand as the cabinet user (only that user's processes are touched).
+#
+#   1. the Fightcade systemd user scope (HK_FIGHTCADE_UNIT), if active: stop --no-block
+#   2. wineserver -k (HK_WINESERVER, each that is executable), at most HK_KILL_GRACE s
+#   3. TERM every process of this user named HK_CLEANUP_NAMES (pgrep -x) or matching HK_CLEANUP_PATTERNS (pgrep -f);
+#      after HK_KILL_GRACE s KILL what is left (a hung emulator that ignores TERM too), then KILL the scope
+#   4. proof: "cleanup: proof pgrep count=N" (N = what is still left), exit 0 when N = 0, else 1
+#
+# Config: the same file as coin-dojo-session ($COIN_DOJO_SESSION_CONF). Bash 3.2 compatible.
+set -u
+
+HK_FIGHTCADE_UNIT=coin-dojo-fightcade.scope
+HK_WINESERVER=()
+HK_KILL_GRACE=3
+HK_CLEANUP_NAMES=(retroarch flycast es-de AppRun electron wineserver wine wine64 box64)
+HK_CLEANUP_PATTERNS=("retroarch-1.22/retroarc[h]" "settings_app[.]py" "trophies_app[.]py" "bootmenu_app[.]py"
+                     "wine(64)?-preloade[r]" "[.]exe( |$)")
+CONF=${COIN_DOJO_SESSION_CONF:-/usr/local/etc/coin-dojo-session.conf}
+# shellcheck source=/dev/null
+[ -r "$CONF" ] && . "$CONF"
+
+ME=$(id -u)
+
+say() { printf '%s coin-dojo-cleanup[%d]: %s\n' "$(date '+%F %T')" $$ "$*"; }
+
+# Pids of this user's leftovers, one per line (never this script or its parent session).
+leftovers() {
+  local p
+  {
+    for p in ${HK_CLEANUP_NAMES[@]+"${HK_CLEANUP_NAMES[@]}"}; do pgrep -u "$ME" -x "$p"; done
+    for p in ${HK_CLEANUP_PATTERNS[@]+"${HK_CLEANUP_PATTERNS[@]}"}; do pgrep -u "$ME" -f "$p"; done
+  } 2>/dev/null | grep -vx -e "$$" -e "$PPID" | sort -u
+}
+
+signal_all() {
+  local pid
+  for pid in $(leftovers); do kill "-$1" "$pid" 2>/dev/null; done
+}
+
+# wait_gone SECONDS: poll every 0.1 s until nothing is left; 0 = all gone.
+wait_gone() {
+  local i=0 steps=$(($1 * 10))
+  while [ -n "$(leftovers)" ]; do
+    [ "$i" -ge "$steps" ] && return 1
+    sleep 0.1
+    i=$((i + 1))
+  done
+  return 0
+}
+
+has_systemd_user() { command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet "$HK_FIGHTCADE_UNIT" 2>/dev/null; }
+
+if has_systemd_user; then
+  say "stopping $HK_FIGHTCADE_UNIT"
+  systemctl --user stop --no-block "$HK_FIGHTCADE_UNIT" 2>/dev/null
+fi
+
+for w in ${HK_WINESERVER[@]+"${HK_WINESERVER[@]}"}; do
+  [ -x "$w" ] || continue
+  say "$w -k"
+  "$w" -k >/dev/null 2>&1 &
+  wpid=$!
+  i=0
+  while kill -0 "$wpid" 2>/dev/null && [ "$i" -lt $((HK_KILL_GRACE * 10)) ]; do sleep 0.1; i=$((i + 1)); done
+  kill -KILL "$wpid" 2>/dev/null
+  wait "$wpid" 2>/dev/null
+done
+
+before=$(leftovers | wc -l | tr -d ' ')
+if [ "$before" -gt 0 ]; then
+  say "TERM $before process(es): $(leftovers | tr '\n' ' ')"
+  signal_all TERM
+  if ! wait_gone "$HK_KILL_GRACE"; then
+    say "KILL after ${HK_KILL_GRACE} s: $(leftovers | tr '\n' ' ')"
+    signal_all KILL
+    wait_gone 2
+  fi
+fi
+if has_systemd_user; then
+  systemctl --user kill --signal=KILL "$HK_FIGHTCADE_UNIT" 2>/dev/null
+fi
+
+left=$(leftovers | wc -l | tr -d ' ')
+if [ "$left" -eq 0 ]; then
+  say "proof pgrep count=0"
+  exit 0
+fi
+say "proof pgrep count=$left (still running: $(leftovers | tr '\n' ' '))"
+exit 1

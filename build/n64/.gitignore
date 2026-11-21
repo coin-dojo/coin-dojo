@@ -1,0 +1,3 @@
+# Never commit the built core or its records (ship no artifacts)
+out/
+work/

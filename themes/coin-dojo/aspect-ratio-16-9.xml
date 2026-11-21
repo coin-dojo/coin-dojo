@@ -1,0 +1,92 @@
+<!--
+    16:9 fallback. The cabinet is 4:3; this keeps the theme usable on a
+    widescreen dev monitor. It swaps in the wider background and pulls the
+    system hero + gamelist media to sit better in the wider frame.
+-->
+<theme>
+    <fontSize name="medium">
+        <variables>
+            <carouselFont>0.072</carouselFont>
+            <listFont>0.030</listFont>
+            <descFont>0.020</descFont>
+            <metaFont>0.018</metaFont>
+        </variables>
+    </fontSize>
+    <fontSize name="large">
+        <variables>
+            <carouselFont>0.082</carouselFont>
+            <listFont>0.035</listFont>
+            <descFont>0.023</descFont>
+            <metaFont>0.021</metaFont>
+        </variables>
+    </fontSize>
+
+    <variant name="all">
+        <view name="system, gamelist">
+            <image name="background">
+                <path>./_inc/art/background-16-9.png</path>
+            </image>
+        </view>
+
+        <view name="system">
+            <carousel name="systemCarousel">
+                <pos>0 0.40</pos>
+                <size>1 0.26</size>
+                <fontSize>${carouselFont}</fontSize>
+                <maxItemCount>3</maxItemCount>
+                <itemSize>0.165 0.062</itemSize>
+                <itemScale>2.2</itemScale>   <!-- pinned: theme.xml's 4:3 value (2.42, #221) would grow the 16:9 badge -->
+                <selectedItemMargins>0.045 0.045</selectedItemMargins>
+            </carousel>
+        </view>
+
+        <view name="gamelist">
+            <image name="panelLeft">
+                <pos>0.025 0.19</pos>
+                <size>0.34 0.655</size>
+            </image>
+            <textlist name="gamelistTextlist">
+                <pos>0.043 0.205</pos>
+                <size>0.30 0.625</size>
+                <fontSize>${listFont}</fontSize>
+            </textlist>
+            <image name="panelRight">
+                <pos>0.385 0.19</pos>
+                <size>0.59 0.655</size>
+            </image>
+            <text name="description">
+                <fontSize>${descFont}</fontSize>
+            </text>
+            <text name="genre, players, developer,
+                        labelGenre, labelPlayers, labelDeveloper, labelReleased">
+                <fontSize>${metaFont}</fontSize>
+            </text>
+            <datetime name="releasedate">
+                <fontSize>${metaFont}</fontSize>
+            </datetime>
+        </view>
+
+        <view name="gamelist">
+            <text name="collectionsSystemName, customCollectionsSystemName, customCollectionsHeader">
+                <pos>0.40 0.125</pos>
+            </text>
+        </view>
+    </variant>
+
+    <variant name="withVideos">
+        <view name="gamelist">
+            <video name="gameVideo">
+                <pos>0.68 0.36</pos>
+                <maxSize>0.52 0.29</maxSize>
+            </video>
+        </view>
+    </variant>
+    <variant name="withoutVideos">
+        <view name="gamelist">
+            <image name="gameImage">
+                <pos>0.68 0.36</pos>
+                <maxSize>0.52 0.29</maxSize>
+            </image>
+        </view>
+    </variant>
+</theme>

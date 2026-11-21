@@ -1,0 +1,18 @@
+# Killer Instinct Gold (#64, NOT TESTED). Needs its game options file
+# skills/controls/core-options/Mupen64Plus-Next/Killer Instinct Gold.opt (mupen64plus-alt-map = "True",
+# "Independent C-button Controls"). With it, Mupen64Plus-Next reads the C buttons from face buttons
+# (emulate_game_controller_via_libretro.c): RetroPad B = N64 A, Y = N64 B, X = C-Up, A = C-Down,
+# L = C-Left, R = C-Right, L2 = Z, R2 = R, SELECT = N64 L.
+# KI Gold's default buttons (manual, "Controller Functions"): B = Quick Punch, A = Quick Kick, the C buttons =
+# Medium Punch, Medium Kick, Fierce Punch, Fierce Kick. The manual scan does not say which C arrow is which;
+# assumed (pad geometry, punches on the upper row): C-Left = MP, C-Up = FP, C-Down = MK, C-Right = FK.
+# Check on KI Gold's Options > Button Setup screen; if it differs, swap the two lines below.
+# Panel -> N64: Jab (Y) = B = QP, Strong (X) -> L (10) = C-Left = MP, Fierce (L) -> X (9) = C-Up = FP,
+# Short (B) = A = QK, Forward (A) = C-Down = MK, Roundhouse (R) = C-Right = FK (the last three are identity).
+# A game remap replaces Mupen64Plus-Next.rmp for this game. Player 2 = player 1.
+input_remap_port_p1 = "0"
+input_remap_port_p2 = "1"
+input_player1_btn_x = "10"
+input_player1_btn_l = "9"
+input_player2_btn_x = "10"
+input_player2_btn_l = "9"

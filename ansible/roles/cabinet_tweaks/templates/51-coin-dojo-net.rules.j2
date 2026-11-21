@@ -1,0 +1,13 @@
+// Managed by coin-dojo ansible cabinet_tweaks (#213). User {{ cabinet_user }} may run NetworkManager network-control
+// from any session, SSH included, so a Wi-Fi change such as power save applies without sudo (a reconnect).
+// Real scope of network-control: bring any SAVED connection up or down (also switch to another saved network),
+// disconnect a device or set it unmanaged (over Wi-Fi SSH that locks you out; recover at the cabinet's seat or with
+// a reboot), and change a device at runtime (nmcli device modify/reapply: IP, DNS, routes; not saved). It does NOT
+// create, change or save connections (settings.modify.*). Exactly this one action; anything else falls through.
+// The SETTINGS app's seat-bound Wi-Fi rights: 50-coin-dojo-settings.rules (role settings).
+polkit.addRule(function(action, subject) {
+    if (subject.user == "{{ cabinet_user }}" &&
+        action.id == "org.freedesktop.NetworkManager.network-control") {
+        return polkit.Result.YES;
+    }
+});

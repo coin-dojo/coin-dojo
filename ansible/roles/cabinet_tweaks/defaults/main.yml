@@ -1,0 +1,187 @@
+# cabinet_tweaks: system tweaks for the Debian cabinet (play 2 in site.yml). New role rather than
+# spreading over display/controller: those target Batocera (/userdata, root); these target the
+# Debian image (user coindojo, sudo, /boot/firmware, RetroArch + ES-DE in $HOME).
+# Levers live in config/variables.d/*.yml (hk_*); a role default is either a pass-through to one or marked `# internal`
+# (tests/test_cabinet_roles.py "no hidden knob").
+cabinet_user: "{{ hk_cabinet_user }}"
+cabinet_group: "{{ hk_cabinet_group }}"
+cabinet_home: "{{ hk_cabinet_home }}"
+
+# 4 KB-page kernel (hk_kernel_4k, area display). Reboot is NOT automatic: the play prints "reboot required" at the end.
+cabinet_kernel_4k: "{{ hk_kernel_4k }}"
+cabinet_boot_config: /boot/firmware/config.txt   # internal
+
+# RetroArch
+cabinet_retroarch_dir: "{{ cabinet_home }}/.config/retroarch"   # internal
+# {core: folder under config/, key, value}; one lineinfile per key (RetroArch rewrites these files with every
+# default, so whole-file templates would fight it). Declared in config/variables.d/launch.yml.
+# hk_upscale (#170, area emulators) derives the upscale options first (4:3 only: N64 320x240 x n; PSX enhanced
+# resolution = 2x, on only at n >= 2); hk_core_options come after, so the same core + key there wins.
+cabinet_upscale: "{{ hk_upscale | int }}"
+cabinet_upscale_options:   # internal: derived from hk_upscale
+  - { core: PCSX-ReARMed, key: pcsx_rearmed_neon_enhancement_enable, value: "{{ 'enabled' if cabinet_upscale | int >= 2 else 'disabled' }}" }
+  - { core: PCSX-ReARMed, key: pcsx_rearmed_neon_enhancement_no_main, value: disabled }
+  - { core: Mupen64Plus-Next, key: mupen64plus-43screensize, value: "{{ 320 * cabinet_upscale | int }}x{{ 240 * cabinet_upscale | int }}" }
+cabinet_core_options: "{{ cabinet_upscale_options + hk_core_options }}"
+# retroarch.cfg keys (hotkey = START etc.), same file. Benchmark mode (#185, hk_benchmark_mode) merges its keys over
+# them by key (so each key is written once and a second run changes nothing); off writes back the normal values.
+cabinet_benchmark: "{{ hk_benchmark_mode }}"
+# internal: proven by cabinet screenshots 2026-11-17 (throwaway cfg): with widgets on RetroArch draws the FPS top right
+# of the full 1920 panel, under the bezel; as plain OSD text it sits at video_message_pos (x 0.75 = 1440 px, inside).
+cabinet_benchmark_on:   # internal
+  - { key: fps_show, value: "true" }
+  - { key: menu_enable_widgets, value: "false" }
+  - { key: video_message_pos_x, value: "0.750000" }
+  - { key: video_message_pos_y, value: "0.940000" }
+  - { key: video_message_color, value: "36d6e7" }          # brand cyan
+  - { key: video_msg_bgcolor_enable, value: "true" }
+  - { key: video_msg_bgcolor_red, value: "10" }            # brand indigo 0a1038
+  - { key: video_msg_bgcolor_green, value: "16" }
+  - { key: video_msg_bgcolor_blue, value: "56" }
+  - { key: video_msg_bgcolor_opacity, value: "0.700000" }
+# internal: the normal values (= the live cabinet before #185); hk_retroarch_cfg's own lines come after and win.
+cabinet_benchmark_off:   # internal
+  - { key: menu_enable_widgets, value: "true" }
+  - { key: video_message_pos_y, value: "0.050000" }
+  - { key: video_message_color, value: "ffff00" }
+  - { key: video_msg_bgcolor_enable, value: "false" }
+  - { key: video_msg_bgcolor_red, value: "0" }
+  - { key: video_msg_bgcolor_green, value: "0" }
+  - { key: video_msg_bgcolor_blue, value: "0" }
+  - { key: video_msg_bgcolor_opacity, value: "1.000000" }
+cabinet_retroarch_cfg: >-   # internal: hk_retroarch_cfg with the benchmark keys merged in by key
+  {{ ((cabinet_benchmark_off | items2dict) | combine(hk_retroarch_cfg | items2dict)
+      | combine(cabinet_benchmark_on | items2dict if cabinet_benchmark | bool else {})) | dict2items }}
+# #189 the cabinet wins (the maintainer 2026-11-17): the SETTINGS app's state file, when it holds "benchmark_mode": true|false,
+# overrides hk_benchmark_mode (= only the first-install default; tasks set cabinet_benchmark from it). This role
+# publishes the values the app writes for on/off, from the lists above (one source).
+cabinet_settings_state: "{{ cabinet_home }}/.config/coin-dojo/settings-state.json"   # internal
+cabinet_benchmark_keys_file: "{{ cabinet_home }}/.config/coin-dojo/benchmark-retroarch.json"   # internal
+cabinet_benchmark_keys: >-   # internal: every on/off key, off = what a deploy with benchmark mode off writes
+  {%- set base = (cabinet_benchmark_off | items2dict) | combine(hk_retroarch_cfg | items2dict) -%}
+  {%- set names = (cabinet_benchmark_on + cabinet_benchmark_off) | map(attribute='key') | unique | list -%}
+  {%- set full = base | combine(cabinet_benchmark_on | items2dict) -%}
+  {{ {'file': cabinet_retroarch_dir ~ '/retroarch.cfg', 'format': 'retroarch', 'default': hk_benchmark_mode | bool,
+      'on': dict(full | dict2items | selectattr('key', 'in', names) | items2dict),
+      'off': dict(base | dict2items | selectattr('key', 'in', names) | items2dict)} }}
+
+# Per-core / per-content-dir remaps (#56, #57). Single source: skills/controls/remaps/<core>/<file>
+# (Input's controls skill); copied whole to config/remaps/<core>/<file>. Every .rmp there must be
+# listed here (tests/test_cabinet_roles.py). Apply only while RetroArch is not running (guarded).
+# Mupen64Plus-Next.rmp (the N64 panel) is owned by retroarch122 (#122): two roles on one file flip it every run.
+cabinet_remaps_src: "{{ hk_repo_root }}/skills/controls/remaps"
+cabinet_remaps:
+  - { core: "Genesis Plus GX", file: "Genesis Plus GX.rmp" }   # #56: LP MP HP = X Y Z, LK MK HK = A B C
+  - { core: "PCSX-ReARMed", file: "PCSX-ReARMed.rmp" }         # #57: Fierce R1, Roundhouse R2
+  - { core: "FinalBurn Neo", file: "neogeo.rmp" }              # #57: Neo Geo A B C top row, D on Short
+  - { core: "FinalBurn Neo", file: "robotron.rmp" }            # #59 twin stick: P2 stick -> P1 right analog (fire)
+  - { core: "FinalBurn Neo", file: "bwidow.rmp" }              # #59 twin stick (same as robotron)
+  - { core: "FinalBurn Neo", file: "smashtv.rmp" }             # #59 twin stick (same as robotron)
+  - { core: "FinalBurn Neo", file: "totcarn.rmp" }             # #59 twin stick (same as robotron)
+  - { core: "Mupen64Plus-Next", file: "Robotron 64.rmp" }      # #59/#64 twin stick: P2 stick = C buttons
+  - { core: "Mupen64Plus-Next", file: "Killer Instinct Gold.rmp" } # #64 six attacks; needs the KI Gold .opt below
+  - { core: "Mupen64Plus-Next", file: "WWF No Mercy.rmp" }     # strike/block/turn, grapple/reverse/run; + override below
+  - { core: "Snes9x", file: "Super Smash T.V. (USA).rmp" }     # #59 twin stick: P2 stick = X B Y A
+  - { core: "Stella", file: "Stella.rmp" }                     # #58 every button = fire
+
+# Per-game core options (#64), copied whole to config/<core>/<file> (a per-game .opt REPLACES the core .opt, so
+# each file is a full copy). Every .opt under skills/controls/core-options must be listed (test_cabinet_roles.py).
+cabinet_core_option_files_src: "{{ hk_repo_root }}/skills/controls/core-options"
+cabinet_core_option_files:
+  - { core: "Mupen64Plus-Next", file: "Killer Instinct Gold.opt" } # alt-map (independent C buttons) for KI Gold only
+
+# Per-game override keys, merged into config/<core>/<game>.cfg (game = ROM stem). The panel stick has no hat
+# (evdev ABS_X/ABS_Y only); the autoconfig binds those axes to the RetroPad d-pad. Binding the same axes to the
+# left analog here gives BOTH (a user/override bind wins over the autoconfig per bind, RetroArch 1.22.2
+# input_driver.c L805-816 / L1064-1069). No Mercy: d-pad = move, analog = taunts + finishers.
+cabinet_game_overrides:
+  - core: Mupen64Plus-Next
+    game: WWF No Mercy
+    keys:
+      - { key: input_player1_l_x_minus_axis, value: "-0" }
+      - { key: input_player1_l_x_plus_axis, value: "+0" }
+      - { key: input_player1_l_y_minus_axis, value: "-1" }
+      - { key: input_player1_l_y_plus_axis, value: "+1" }
+      - { key: input_player2_l_x_minus_axis, value: "-0" }
+      - { key: input_player2_l_x_plus_axis, value: "+0" }
+      - { key: input_player2_l_y_minus_axis, value: "-1" }
+      - { key: input_player2_l_y_plus_axis, value: "+1" }
+      # The maintainer 2026-11-15: stick on BOTH d-pad and analog made the wrestler gesture while walking. Stick = N64
+      # analog only: point the d-pad at axis 9, which the panel does not have ("nul" would fall back to the
+      # autoconfig, which binds the d-pad to axes 0/1).
+      - { key: input_player1_up_axis, value: "-9" }
+      - { key: input_player1_down_axis, value: "+9" }
+      - { key: input_player1_left_axis, value: "-8" }
+      - { key: input_player1_right_axis, value: "+8" }
+      - { key: input_player2_up_axis, value: "-9" }
+      - { key: input_player2_down_axis, value: "+9" }
+      - { key: input_player2_left_axis, value: "-8" }
+      - { key: input_player2_right_axis, value: "+8" }
+
+# Swap (#52): the Raspberry Pi OS default, captured so a rebuild keeps it. rpi-swap's generator makes
+# zram0 (zstd, RAM x1, max 2 GiB = 1.9G on the 2 GB Pi 5) with /var/swap as its writeback file
+# (Mechanism=zram+file). The drop-in pins today's values; "auto" may change upstream.
+cabinet_swap_packages: [rpi-swap, systemd-zram-generator]
+cabinet_swap_dropin: /etc/rpi/swap.conf.d/50-coin-dojo.conf   # internal
+# The maintainer 2026-11-15: zram from RAM only; the 811M /var/swap writeback file on the SD card goes (root fs space, #91).
+# Declared in config/variables.d/storage.yml as hk_swap {mechanism, ram_multiplier, max_mib} (defaults zram, 1, 2048).
+cabinet_swap_mechanism: "{{ hk_swap.mechanism }}"
+cabinet_zram_ram_multiplier: "{{ hk_swap.ram_multiplier }}"
+cabinet_zram_max_mib: "{{ hk_swap.max_mib }}"
+
+# Hidden cursor (kiosk has no mouse): transparent Xcursor theme + env in the tty1 block.
+cabinet_bash_profile: "{{ cabinet_home }}/.bash_profile"   # internal
+cabinet_cursor_theme_dir: "{{ cabinet_home }}/.icons/blank"   # internal
+
+# ES-DE: only these keys, in place. es_settings.xml holds a ScreenScraper password -> never templated.
+cabinet_es_settings: "{{ hk_esde_home }}/settings/es_settings.xml"   # internal
+# Declared in config/variables.d/esde.yml (the allowed keys, type-checked by config-check) and attract.yml.
+cabinet_es_settings_map: "{{ hk_esde_settings }}"
+cabinet_attract_timer_ms: "{{ hk_attract_timer_ms }}"
+cabinet_attract_controls: "{{ hk_attract_controls }}"
+cabinet_attract_type: "{{ hk_attract_type }}"
+# Everything written to es_settings.xml: the map plus the attract keys. The two lists below split it by type
+# (a YAML string -> <string>, a bool -> <bool>, a number -> <int>) for the two tasks.
+# Theme (#244): in an image build, the theme esde_theme installs (esde_theme_name) is the one ES-DE shows; a fresh
+# image has no other way to select it. A live cabinet keeps the one picked in ES-DE's menu (not managed).
+cabinet_es_settings_all: >-   # internal
+  {{ cabinet_es_settings_map | combine({'ScreensaverTimer': cabinet_attract_timer_ms | int,
+  'ScreensaverControls': cabinet_attract_controls | bool, 'ScreensaverType': cabinet_attract_type})
+  | combine({'Theme': esde_theme_name} if coin_dojo_image | default(false) | bool and esde_theme_name is defined else {}) }}
+cabinet_es_settings_strings: >-   # internal
+  {{ cabinet_es_settings_all | dict2items(key_name='name', value_name='value') | selectattr('value', 'string') | list }}
+cabinet_es_settings_typed: >-   # internal
+  {% set out = [] %}{% for k, v in cabinet_es_settings_all.items() if v is not string %}{% set _ = out.append({'type': 'bool' if v is boolean else 'int', 'name': k, 'value': (v | string | lower)}) %}{% endfor %}{{ out }}
+
+# ES-DE per-system default emulator (#47). ES-DE 3.5 defaults nes to "Mesen" (mesen_libretro.so), which
+# is not installed -> NES games fail to launch. Pin the labels of cores that ARE installed.
+# system -> {label: ES-DE label from es_systems.xml, core: libretro core file it needs}.
+# dreamcast is pinned by its own role. Only the <alternativeEmulator> block is managed, never <gameList>.
+cabinet_libretro_dir: /usr/lib/aarch64-linux-gnu/libretro   # internal
+cabinet_es_gamelists_dir: "{{ hk_esde_home }}/gamelists"   # internal
+# Declared in config/variables.d/launch.yml (the VM overlay pins nes only).
+cabinet_alt_emulators: "{{ hk_alt_emulators }}"
+
+# Hardening (the maintainer 2026-11-14, applied live by hand first; Ansible keeps it):
+# - these users are taken out of the sudo group (their other groups stay). Live: `gpasswd -d pi sudo`.
+cabinet_nosudo_users: [pi]
+# - sudo caches no credentials for the cabinet user (#93; sorts after Pi OS's 010_* files, no dot in the name or
+#   sudo skips it).
+cabinet_sudo_timeout_file: /etc/sudoers.d/coin-dojo-sudo-timeout   # internal
+# Apply-time proof that `sudo -n true` is refused; false only where the user has NOPASSWD sudo (the VM).
+cabinet_sudo_cache_proof: true   # internal
+# - apt keeps no downloaded .debs (the root fs had 798 MB free; apt-get clean freed 378 MB).
+#   Unattended upgrades stay OFF (the maintainer): nothing here installs or enables them.
+cabinet_apt_nocache_file: /etc/apt/apt.conf.d/50-coin-dojo-nocache   # internal
+
+# Wi-Fi for online play (#213). Levers in config/variables.d/network.yml. Skipped with a message when NetworkManager
+# is not installed (the test VM). The drop-in sets the default for every Wi-Fi connection whose own powersave is
+# "default" (what the SETTINGS app creates); NM reads conf.d at a reload, a connection takes it at its next activation.
+cabinet_wifi_powersave: "{{ hk_wifi_powersave }}"
+cabinet_wifi_reconnect_polkit: "{{ hk_wifi_reconnect_polkit }}"
+cabinet_nm_binary: /usr/sbin/NetworkManager   # internal: present = NetworkManager is installed
+cabinet_nm_dropin: /etc/NetworkManager/conf.d/90-coin-dojo-wifi.conf   # internal
+# internal: one action for the cabinet user from any session (SSH too). Sorts after role settings' seat-bound
+# 50-coin-dojo-settings.rules (scan / network-control / settings.modify.system at the seat); each rule returns YES or
+# falls through, so the two never conflict.
+cabinet_net_polkit_file: /etc/polkit-1/rules.d/51-coin-dojo-net.rules   # internal

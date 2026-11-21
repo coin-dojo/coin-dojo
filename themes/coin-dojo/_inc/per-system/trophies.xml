@@ -1,0 +1,10 @@
+<!-- Per-system overrides for the TROPHIES carousel entry (#176), included by theme.xml as
+     ./_inc/per-system/${system.theme}.xml (systems without a file here: ES-DE logs a debug line only).
+     TROPHIES is a tool, not a game list: no "1 GAME" pill under it. -->
+<theme>
+    <view name="system">
+        <text name="gameCounter">
+            <visible>false</visible>
+        </text>
+    </view>
+</theme>

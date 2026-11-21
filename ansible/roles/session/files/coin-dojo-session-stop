@@ -1,0 +1,46 @@
+#!/bin/bash
+# coin-dojo-session-stop (#209): end the current mode of the cabinet session and go back to the boot menu.
+# Installed by the ansible role `session` to /usr/local/bin/coin-dojo-session-stop. Callers: coin-dojo-stickmouse's
+# SELECT+START exit combo (#211), or by hand over ssh.
+#
+# Contract (#204 Interfaces v2 + Security's #211 review):
+#   - runs as the cabinet user, NO sudo, works under NoNewPrivileges and from any cgroup (a `systemd-run --user`
+#     transient unit is fine): it only writes a file in $HK_RUN_DIR and signals the session's pid
+#   - writes `menu` to $HK_RUN_DIR/next-mode ONLY when no request is there yet (an earlier `fightcade`/`esde` wins)
+#   - sends SIGUSR1 to coin-dojo-session (pid in $HK_RUN_DIR/session.pid, checked to really be coin-dojo-session of
+#     this user); the session TERMs the current mode, KILLs it after HK_STOP_GRACE s, runs coin-dojo-cleanup and
+#     reads the request. In the boot menu the signal is ignored.
+#   - quick (no waiting for the mode to end) and idempotent: calling it twice sends a second USR1, which is harmless
+#   - exit 0 = signal sent; 0 too with "no session running" on stderr when there is no session (nothing to stop);
+#     2 = usage
+set -u
+[ $# -eq 0 ] || { echo "usage: coin-dojo-session-stop" >&2; exit 2; }
+
+HK_RUN_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/coin-dojo"
+CONF=${COIN_DOJO_SESSION_CONF:-/usr/local/etc/coin-dojo-session.conf}
+# shellcheck source=/dev/null
+[ -r "$CONF" ] && . "$CONF"
+
+REQ_FILE=$HK_RUN_DIR/next-mode
+PID_FILE=$HK_RUN_DIR/session.pid
+
+pid=$(head -c 16 "$PID_FILE" 2>/dev/null | tr -d '[:space:]')
+case "$pid" in
+  "" | *[!0-9]*) echo "coin-dojo-session-stop: no session running" >&2; exit 0 ;;
+esac
+if ! kill -0 "$pid" 2>/dev/null; then
+  echo "coin-dojo-session-stop: no session running (stale pid $pid)" >&2
+  exit 0
+fi
+# The pid must be coin-dojo-session (a stale file could name a reused pid).
+if [ -r "/proc/$pid/cmdline" ]; then
+  tr '\0' ' ' <"/proc/$pid/cmdline" | grep -q coin-dojo-session || { echo "coin-dojo-session-stop: pid $pid is not coin-dojo-session" >&2; exit 0; }
+else
+  ps -p "$pid" -o args= 2>/dev/null | grep -q coin-dojo-session || { echo "coin-dojo-session-stop: pid $pid is not coin-dojo-session" >&2; exit 0; }
+fi
+
+if [ ! -e "$REQ_FILE" ]; then
+  printf 'menu\n' >"$REQ_FILE.$$" && mv -f "$REQ_FILE.$$" "$REQ_FILE"
+fi
+kill -USR1 "$pid"
+echo "coin-dojo-session-stop: asked session $pid to end the current mode"

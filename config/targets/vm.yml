@@ -1,0 +1,12 @@
+# Target overlay: coin-dojo-vm, the throwaway Debian test VM on the Mac (make deploy LIMIT=coin-dojo-vm).
+# Applies on top of the declared defaults and below your local file. Only variables that differ for the VM go here.
+# The VM is recreated at will (a new host key each time) and lives on the Mac's loopback: do not pin its host key.
+hk_ssh_user: coindojo
+hk_ssh_common_args: -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR
+
+# cabinet_tweaks: no /boot/firmware/config.txt (no Pi firmware), so no 4 KB-kernel line;
+# the vz guest kernel already uses 4 KB pages.
+hk_kernel_4k: false
+# Debian has no fbneo core: pin only nes (Nestopia, libretro-nestopia). cps1/cps2 are cabinet-only.
+hk_alt_emulators:
+  nes: { label: "Nestopia UE", core: nestopia_libretro.so }

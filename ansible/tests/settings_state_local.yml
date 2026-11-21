@@ -1,0 +1,70 @@
+# Local integration play for the SETTINGS state-file read (#197), run by tests/test_settings_state_read.py in the
+# pinned container (ansible_connection=local). The test hands it an inventory with one host per sample state file and
+# the three roles' own read tasks, cut from their tasks/main.yml (hk_role_tasks). Never points at the cabinet.
+- name: A non-root cabinet user and the sample state files in its home
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: The cabinet user (non-root, so the read runs as it like on the cabinet)
+      ansible.builtin.user:
+        name: "{{ cabinet_user }}"
+        shell: /bin/bash
+      throttle: 1                # one useradd at a time (all hosts are this container)
+
+    - name: Sample dir in its home
+      ansible.builtin.file:
+        path: "{{ hk_sample_path | dirname }}"
+        state: directory
+        owner: "{{ cabinet_user }}"
+        mode: "0700"
+
+    - name: Sample state file, the cabinet user's (never logged)
+      ansible.builtin.copy:
+        dest: "{{ hk_sample_path }}"
+        content: "{{ hk_sample_b64 | b64decode }}"
+        owner: "{{ cabinet_user }}"
+        mode: "0600"
+      no_log: true
+      when: hk_sample_kind == 'file'
+
+    - name: Sample state file as a symlink
+      ansible.builtin.file:
+        src: "{{ hk_sample_link }}"
+        dest: "{{ hk_sample_path }}"
+        state: link
+        force: true
+      when: hk_sample_kind == 'link'
+
+- name: The three roles' read tasks on each sample
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Role read tasks
+      ansible.builtin.include_tasks: "{{ item }}"
+      loop: "{{ hk_role_tasks }}"
+
+    - name: The settings role's defaults (the entry file's attract block is rendered from them)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../roles/settings/defaults/main.yml"
+
+    - name: The entry file's JSON, rendered the way the settings role renders it
+      ansible.builtin.set_fact:
+        hk_entry_json: "{{ {'attract': settings_attract} | to_nice_json }}"
+
+    - name: What the roles made of it
+      ansible.builtin.copy:
+        dest: "{{ hk_out_dir }}/{{ inventory_hostname }}.json"
+        content: >-
+          {{ {'cabinet_attract_timer_ms': cabinet_attract_timer_ms,
+              'cabinet_attract_type': cabinet_attract_type,
+              'entry_json': hk_entry_json,
+              'cabinet_benchmark': cabinet_benchmark,
+              'retroarch122_cheevos_enable': retroarch122_cheevos_enable,
+              'retroarch122_cheevos_hardcore': retroarch122_cheevos_hardcore,
+              'retroarch122_cheevos_app_login': retroarch122_cheevos_app_login,
+              'dreamcast_benchmark': dreamcast_benchmark,
+              'dreamcast_cheevos_enable': dreamcast_cheevos_enable,
+              'dreamcast_cheevos_hardcore': dreamcast_cheevos_hardcore,
+              'dreamcast_cheevos_app_login': dreamcast_cheevos_app_login,
+              'read_error': cabinet_settings_state_file.msg | default('')} | to_json }}
+        mode: "0644"

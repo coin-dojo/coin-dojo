@@ -1,0 +1,21 @@
+// coin-dojo SETTINGS app (#34/#35, role `settings`): user {{ settings_user }}, at the cabinet's own seat (a local, active
+// session: the tty1 autologin that runs cage + ES-DE), may scan for Wi-Fi, connect, and save or forget Wi-Fi
+// connections with NetworkManager. Exactly these three actions; anything else falls through to the defaults.
+polkit.addRule(function(action, subject) {
+    if (subject.user == "{{ settings_user }}" && subject.local && subject.active &&
+        (action.id == "org.freedesktop.NetworkManager.wifi.scan" ||
+         action.id == "org.freedesktop.NetworkManager.network-control" ||
+         action.id == "org.freedesktop.NetworkManager.settings.modify.system")) {
+        return polkit.Result.YES;
+    }
+});
+{% if settings_polkit_timezone %}
+// TIME ZONE (#206): the same user at the same seat may set the time zone, nothing else of timedated (not the clock, not
+// NTP, not the RTC mode). The zone name is checked by the app and again by systemd-timedated against tzdata.
+polkit.addRule(function(action, subject) {
+    if (subject.user == "{{ settings_user }}" && subject.local && subject.active &&
+        action.id == "org.freedesktop.timedate1.set-timezone") {
+        return polkit.Result.YES;
+    }
+});
+{% endif %}

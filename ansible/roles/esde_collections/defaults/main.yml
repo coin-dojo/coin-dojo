@@ -1,0 +1,60 @@
+# esde_collections (#89): the nested main screen (MUST PLAY / GENRES / SERIES / DECADES / SYSTEMS) and,
+# optionally, edited real-system gamelists from a laptop workspace. Replaces deploy1/deploy2-apply.sh.
+
+# Tools + curated lists from skills/collections (Emulation's), shipped to {{ coin_dojo_dir }}.
+esde_collections_src: "{{ hk_repo_root }}/skills/collections"
+esde_collections_tools:
+  - collgen.py
+  - nested.py
+  - metadata.py
+  - folder_art.py
+  - validate_nested.py
+  - mame_hidden_names.tsv
+  - folder_text.tsv
+  - series.tsv
+  - duplicates.tsv
+  - twin_stick.tsv        # GENRES/twin-stick (#59); collgen.py loads it from beside itself
+  - system_names.tsv      # carousel names of the systems (#190); nested.py loads it from beside itself
+# Every *.tsv the tools load from beside themselves must be listed (tests/test_esde_roles.py checks).
+# A list in personal/skills/collections/ (the maintainer's curation, #190) is shipped instead of the community example of the
+# same name; EDITION=community always ships the examples.
+esde_collections_personal: "{{ esde_collections_src }}/../../personal/skills/collections"
+
+# Inputs that live only on the cabinet (never in git: ship no artifacts). The deploy stops when one is missing.
+esde_collections_picks: "{{ coin_dojo_dir }}/cabinet-picks.html"
+esde_collections_dat: "{{ coin_dojo_dir }}/libretro.dat"
+esde_collections_folder_art: "{{ coin_dojo_dir }}/folder_photos"
+# ES-DE <command> prefix (collgen's default). Only es_systems.xml names it; launch.py itself is the launcher role's (#62).
+esde_collections_launcher: "python3 {{ esde_user_home }}/ES-DE/scripts/launch.py"
+# Extra `collgen.py nested` flags (the local integration test passes --min-decade 1).
+esde_collections_nested_args: "{{ hk_nested_args }}"
+# MUST PLAY = top N per system, MUST PLAY GENRES = rated >= this many stars (#182, #184; hk_must_play_top,
+# hk_must_play_genre_min_stars). The defaults equal collgen's own, so a play without the config builds the same.
+esde_collections_must_play_top: "{{ hk_must_play_top | default(25) }}"
+esde_collections_must_play_genre_min: "{{ hk_must_play_genre_min_stars | default(4.5) }}"
+# SETTINGS carousel entry (#34): the settings role's entry file + command (typed once, in roles/settings/defaults).
+# When the file exists on the host the build adds the SETTINGS system last (--settings-entry, --settings-command);
+# when it does not, there is no SETTINGS entry (and no dead link).
+esde_collections_settings_entry: "{{ settings_entry }}"
+esde_collections_settings_command: "{{ settings_command }}"
+# TROPHIES carousel entry (#176): same pattern, added before SETTINGS when the settings role wrote its entry file
+# AND hk_trophies_carousel is on (#181, default off: the LP overlay covers it).
+esde_collections_trophies_carousel: "{{ hk_trophies_carousel | default(false) }}"
+esde_collections_trophies_entry: "{{ trophies_entry }}"
+esde_collections_trophies_command: "{{ trophies_command }}"
+
+# FIGHTCADE and QUIT TO MAIN MENU carousel entries (#214): two tool systems of their own whose launch is
+# esde_entry.sh (shipped by this role, 0755, before the build so its link resolves). QUIT is always built.
+# FIGHTCADE is off (#219, the maintainer 2026-11-18: the boot menu offers Fightcade, the carousel entry was redundant and
+# rendered badly): built only when esde_collections_fightcade_entry is true AND the Fightcade launcher (#208) is
+# installed. When it is not built, a deploy also removes ES-DE's gamelists/fightcade left by an earlier deploy
+# (backed up first); es_systems.xml and nested_out lose it through the rebuild itself.
+esde_collections_entry_script: "{{ coin_dojo_dir }}/esde_entry.sh"
+esde_collections_entry_command: "bash {{ esde_collections_entry_script }}"
+esde_collections_fightcade_entry: false
+esde_collections_fightcade_bin: /usr/local/bin/coin-dojo-fightcade
+
+# Edited real-system gamelists: the laptop workspace of `make pull-gamelists W=DIR` (DIR/gamelists/<system>/
+# gamelist.xml + DIR/pulled.md5). Empty = no gamelist copy, only the nested rebuild. `make deploy-collections
+# W=DIR` sets it (and bin/ans mounts DIR read-only into the container).
+esde_gamelists_workspace: ""

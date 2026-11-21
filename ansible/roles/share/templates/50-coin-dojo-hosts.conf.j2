@@ -1,0 +1,7 @@
+# {{ ansible_managed | default('Managed by Ansible') }}: coin-dojo network folder (#266, role share).
+# Every smbd start: write the allowed subnets from the live interfaces first (smb.conf includes the file; without it
+# only loopback may connect), then check that file: anything but loopback, link-local and private local subnets (or
+# an unreadable file) fails this step and smbd does not start (fail closed).
+[Service]
+ExecStartPre=/usr/bin/python3 {{ share_hosts_script }} --interfaces {{ share_interfaces | reject('equalto', 'lo') | join(' ') | quote }} --out {{ share_hosts_file }}
+ExecStartPre=/usr/bin/python3 {{ share_check }} --hosts-only {{ share_hosts_file }}

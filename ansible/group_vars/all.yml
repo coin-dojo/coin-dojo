@@ -1,0 +1,21 @@
+# Fixed facts + tunables shared by every host. Change here, nowhere else.
+
+# --- Build flags (ticket #90) ------------------------------------------------------------------
+# Set by `make deploy` (ARCH=, EDITION=; mk/flags.mk) as extra vars; these are the defaults for a
+# plain bin/deploy run. community = no personal/** files: roles that lay personal/ over the repo
+# files must skip that overlay when coin_dojo_edition == 'community'.
+coin_dojo_arch: arm64
+coin_dojo_edition: personal
+# Image build (#244): true only in image.yml, which runs the roles into the image's root filesystem through a chroot.
+# Roles then skip what needs the running cabinet (systemctl start/reload, sysctl/modprobe/binfmt on the live kernel,
+# NetworkManager, timedated, restarting ES-DE); what they skip happens at the image's first boot instead.
+coin_dojo_image: false
+
+# --- Repo root (ticket #117) --------------------------------------------------------------------
+# Repo-side source paths (`*_src`) hang off this; playbook_dir is ansible/, so its parent is the repo.
+hk_repo_root: "{{ playbook_dir | dirname }}"
+
+# --- Session state (ticket #209) -------------------------------------------------------------------
+# The session loop's tmpfs state dir: current-mode, next-mode (requests), session.pid. The session role renders it
+# into the session config; esde_common's game guard and `restart es-de` handler read and write it.
+coin_dojo_run_dir: "/run/user/{{ hk_cabinet_uid }}/coin-dojo"

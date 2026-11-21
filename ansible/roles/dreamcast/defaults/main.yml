@@ -1,0 +1,107 @@
+# dreamcast role tunables: standalone flycast on the Debian cabinet (play 2 in site.yml).
+# --- levers: every value below is a pass-through of a declared hk_* variable (config/variables.d, docs/CONFIG.md).
+# Change them in config/local.yml, never here. Everything under "internal" is not a lever.
+cabinet_user: "{{ hk_cabinet_user }}"
+cabinet_group: "{{ hk_cabinet_group }}"
+cabinet_home: "{{ hk_cabinet_home }}"
+dreamcast_uid: "{{ hk_cabinet_uid }}"
+dreamcast_flycast_resolution: "{{ hk_flycast_resolution }}"
+dreamcast_upscale: "{{ hk_upscale }}"
+dreamcast_resolution_by_game: "{{ hk_flycast_resolution_by_game }}"
+dreamcast_vsync: "{{ hk_flycast_vsync }}"
+dreamcast_show_fps: "{{ hk_flycast_show_fps }}"
+dreamcast_benchmark: "{{ hk_benchmark_mode }}"
+
+# --- internal (not levers) ---------------------------------------------------------------------
+# hk_flycast_resolution 0 = follow hk_upscale (#170): 480 lines x n (960 at 2), 4:3 by flycast's own aspect.
+dreamcast_resolution: "{{ dreamcast_flycast_resolution | int if dreamcast_flycast_resolution | int > 0 else 480 * dreamcast_upscale | int }}"
+
+dreamcast_dir: /data/emulators/flycast
+# #189 the cabinet wins (the maintainer 2026-11-17): the SETTINGS app's state file ("benchmark_mode": true|false) overrides
+# hk_benchmark_mode (tasks set dreamcast_benchmark from it); the keys file tells the app what rend.ShowFPS is on/off.
+dreamcast_settings_state: "{{ cabinet_home }}/.config/coin-dojo/settings-state.json"
+dreamcast_benchmark_keys_file: "{{ cabinet_home }}/.config/coin-dojo/benchmark-flycast.json"
+dreamcast_benchmark_keys:
+  file: "{{ dreamcast_emu_cfg }}"
+  format: ini
+  section: config
+  default: "{{ hk_benchmark_mode | bool }}"
+  "on": { rend.ShowFPS: "yes" }
+  "off": { rend.ShowFPS: "{{ 'yes' if dreamcast_show_fps | bool else 'no' }}" }
+# #187/#188: env vars our patched flycast build reads (build/flycast/patches; an unpatched binary ignores them).
+# FLYCAST_GUI_43 keeps menu, settings and popups inside the centred 4:3 area the bezel shows (x=240..1680);
+# FLYCAST_FPS_TOPRIGHT puts the FPS counter top right inside it, cyan on indigo like RetroArch's.
+dreamcast_gui_env:
+  FLYCAST_GUI_43: "1"
+  FLYCAST_FPS_TOPRIGHT: "1"
+# #101: Start+MP = flycast's menu key, typed by the watcher through a uinput keyboard. /dev/uinput is root 0600 by
+# default; this rule gives the input group (the cabinet user is in it) rw. Revert: delete the file, `udevadm trigger`.
+dreamcast_uinput_rule_file: /etc/udev/rules.d/60-coin-dojo-uinput.rules
+# uinput is a module on the cabinet (#173): until it is loaded udev has no device and the rule never applies.
+dreamcast_uinput_modules_file: /etc/modules-load.d/coin-dojo-uinput.conf
+dreamcast_uinput_rule: 'KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660"'
+# Local path of Build's build (build/flycast/out/flycast, git-ignored). The binary is NEVER in git;
+# the role copies it from here. Missing file = the copy is skipped with a warning.
+dreamcast_flycast_binary_src: "{{ hk_repo_root }}/build/flycast/out/flycast"
+dreamcast_apt_packages: [libzip5, libminiupnpc18]
+
+# BIOS live on the cabinet already (never in git); we only link them into flycast's data dir.
+dreamcast_bios_dir: /data/bios/dc
+dreamcast_bios_files: [dc_boot.bin, dc_flash.bin, naomi.zip, naomi2.zip, awbios.zip]
+dreamcast_data_dir: "{{ cabinet_home }}/.local/share/flycast"
+
+# emu.cfg keys we set (everything else is left to flycast, which rewrites the file).
+# pvr.rend=0 is GLES: Vulkan renders grey on the Pi 5 v3dv driver.
+dreamcast_emu_cfg: "{{ cabinet_home }}/.config/flycast/emu.cfg"
+# RetroAchievements (#45, area achievements). flycast's [achievements] section; the token is not a lever (bin/deploy
+# passes `cheevos_token`, the role writes it with no_log).
+dreamcast_cheevos_enable: "{{ hk_cheevos_enable }}"
+dreamcast_cheevos_user: "{{ hk_cheevos_user }}"
+dreamcast_cheevos_hardcore: "{{ hk_cheevos_hardcore }}"
+# #171 the cabinet wins: the SETTINGS app's state file (dreamcast_settings_state) overrides the two above
+# ("cheevos_enable" / "cheevos_hardcore"); any "cheevos_login" = the app owns the account: no UserName, no Token.
+dreamcast_cheevos_app_login: false   # internal: set from the state file by the tasks
+dreamcast_emu_settings:
+  - { section: config, key: pvr.rend, value: "0" }
+  - { section: config, key: rend.Resolution, value: "{{ dreamcast_resolution }}" }
+  - { section: config, key: rend.vsync, value: "{{ 'yes' if dreamcast_vsync | bool else 'no' }}" }
+  - { section: config, key: rend.WideScreen, value: "no" }
+  - { section: config, key: rend.ShowFPS, value: "{{ 'yes' if (dreamcast_show_fps | bool or dreamcast_benchmark | bool) else 'no' }}" }
+  # 4:3 pillarbox (#23): a saved 640x480 window made SDL/cage stretch the 4:3 frame
+  # to the full 16:9 panel. A panel-sized window lets flycast letterbox itself
+  # (picture at x=240..1680, 1440 px wide). Windowed 1440x1080 does not work under cage.
+  - { section: window, key: fullscreen, value: "yes" }
+  - { section: window, key: maximized, value: "yes" }
+  - { section: window, key: width, value: "1920" }
+  - { section: window, key: height, value: "1080" }
+  - { section: window, key: left, value: "0" }
+  - { section: window, key: top, value: "0" }
+  # RetroAchievements (#45): flycast reads [achievements] Enabled / HardcoreMode / UserName (Token: separate, no_log).
+  - { section: achievements, key: Enabled, value: "{{ 'yes' if dreamcast_cheevos_enable | bool else 'no' }}" }
+  - { section: achievements, key: HardcoreMode, value: "{{ 'yes' if dreamcast_cheevos_hardcore | bool else 'no' }}" }
+
+# Pad mapping files (Input, the maintainer 2026-11-15: SF III LP/MP swapped). Single source: skills/controls/flycast.
+# The DC file swaps panel LP/MP onto DC X/Y; the _arcade file is flycast's unchanged arcade default (without it,
+# Naomi/Atomiswave fall back to the DC file). Both use raw js codes, so they are only installed when the
+# cabinet's SDL_GAMECONTROLLERCONFIG is the one they were written for. Remove both = flycast's built-in default.
+dreamcast_mappings_src: "{{ hk_repo_root }}/skills/controls/flycast"
+dreamcast_mappings_dir: "{{ cabinet_home }}/.config/flycast/mappings"
+dreamcast_mapping_files:
+  - SDL_USB gamepad.cfg
+  - SDL_USB gamepad_arcade.cfg
+  # per game (dc_games.tsv stick = dpad; generated by skills/controls/flycast/dcpad.py render): the panel stick on
+  # the DC d-pad for discs that need no analog stick. flycast picks SDL_USB gamepad_<game ID>.cfg first.
+  - SDL_USB gamepad_T38706M.cfg   # Ikaruga
+  - SDL_USB gamepad_T46703M.cfg   # Border Down
+  - SDL_USB gamepad_T47803M.cfg   # Karous
+  - SDL_USB gamepad_T46705M.cfg   # Under Defeat
+  - SDL_USB gamepad_T20401M.cfg   # Zero Gunner 2
+  - SDL_USB gamepad_T29102M.cfg   # Triggerheart Exelica
+  - SDL_USB gamepad_T1214N.cfg    # Gunbird 2
+dreamcast_sdl_profile: "{{ cabinet_home }}/.bash_profile"
+dreamcast_sdl_gamecontrollerconfig: "0300cb231f08000001e4000010010000,USB gamepad,a:b3,b:b2,x:b0,y:b4,leftshoulder:b5,rightshoulder:b1,back:b8,start:b9,dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,leftx:a0,lefty:a1,platform:Linux,"
+
+# ES-DE wiring
+dreamcast_es_find_rules: "{{ cabinet_home }}/ES-DE/custom_systems/es_find_rules.xml"
+dreamcast_gamelist: "{{ cabinet_home }}/ES-DE/gamelists/dreamcast/gamelist.xml"
+dreamcast_alt_emulator_label: "Flycast (Standalone)"

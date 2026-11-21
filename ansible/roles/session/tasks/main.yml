@@ -1,0 +1,164 @@
+# session (#209): see defaults/main.yml for what and why. Order:
+#   1. the scripts + their config (root-owned, /usr/local), then the install gate (bash -n, --check)
+#   2. .bash_profile: the es-de exec line (exactly one must exist, else nothing changes) and the dead USE_LAUNCHER
+#      line, each with a backup
+#   3. old /data/launcher USE_LAUNCHER leftovers: backed up, then removed (the rest of power_dir stays)
+#   4. vm.swappiness, permanent (/etc/sysctl.d/99-zz-coin-dojo.conf), applied now with sysctl --system
+# Nothing restarts ES-DE or the session; the loop starts at the next tty1 login.
+
+# ---- 1. scripts + config ---------------------------------------------------------------------------
+- name: Session scripts (loop, cleanup, stop hook)
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  loop:
+    - { src: coin-dojo-session, dest: "{{ session_bin }}" }
+    - { src: coin-dojo-cleanup, dest: "{{ session_cleanup_bin }}" }
+    - { src: coin-dojo-session-stop, dest: "{{ session_stop_bin }}" }
+
+- name: Session config dir
+  ansible.builtin.file:
+    path: "{{ session_conf | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Session config (paths, ES-DE command, cleanup lists, timings)
+  ansible.builtin.template:
+    src: coin-dojo-session.conf.j2
+    dest: "{{ session_conf }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+# The gate runs the installed files (check mode on a first install has none yet: skipped there).
+- name: Install gate - the scripts parse (bash -n)
+  ansible.builtin.command:
+    argv: [bash, -n, "{{ item }}"]
+  loop: ["{{ session_bin }}", "{{ session_cleanup_bin }}", "{{ session_stop_bin }}", "{{ session_conf }}"]
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Install gate - the session checks its config (coin-dojo-session --check, as the cabinet user)
+  ansible.builtin.command:
+    argv: ["{{ session_bin }}", --check]
+  become: true
+  become_user: "{{ session_user }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+# ---- 2. .bash_profile: the es-de exec line only --------------------------------------------------------
+- name: Read .bash_profile
+  ansible.builtin.slurp:
+    src: "{{ session_profile }}"
+  register: session_profile_raw
+
+- name: Exactly one es-de exec line (plain or already guarded), else nothing is changed
+  ansible.builtin.assert:
+    that: (session_profile_raw.content | b64decode | regex_findall('(?m)' ~ session_profile_regexp) | length) == 1
+    fail_msg: >-
+      ABORT: {{ session_profile }} has {{ session_profile_raw.content | b64decode | regex_findall('(?m)' ~ session_profile_regexp) | length }}
+      lines like `exec cage -d -- {{ session_esde_argv[0] }} ...` (expected exactly 1). The profile was edited by
+      hand; nothing changed. Fix the tty1 block (runbooks/cabinet-recovery.md), then re-run.
+    quiet: true
+
+- name: The tty1 exec line runs the session loop (lockout guard - plain ES-DE when the check fails)
+  ansible.builtin.lineinfile:
+    path: "{{ session_profile }}"
+    regexp: "{{ session_profile_regexp }}"
+    line: "{{ session_profile_line if session_enable | bool else session_profile_plain_line }}"
+    backrefs: true
+    backup: true
+    owner: "{{ session_user }}"
+    group: "{{ session_group }}"
+  become: true
+
+- name: Remove the dead USE_LAUNCHER exec line (the old launcher; its flag file goes below)
+  ansible.builtin.lineinfile:
+    path: "{{ session_profile }}"
+    regexp: "{{ session_profile_launcher_regexp }}"
+    state: absent
+    backup: true
+  become: true
+
+# ---- 3. old launcher leftovers (#204 v2: ONLY these; power_dir stays live) --------------------------------
+- name: Look for the old launcher leftovers
+  ansible.builtin.stat:
+    path: "{{ session_old_launcher_dir }}/{{ item }}"
+  loop: "{{ session_old_launcher_items }}"
+  register: session_old_stat
+
+- name: Which leftovers exist
+  ansible.builtin.set_fact:
+    session_old_found: "{{ session_old_stat.results | selectattr('stat.exists') | map(attribute='item') | list }}"
+
+- name: Old launcher leftovers to back up and remove (dry run shows them; APPLY removes)
+  ansible.builtin.debug:
+    msg: "{{ session_old_launcher_dir }}: {{ session_old_found | join(', ') }} -> {{ session_backup_root }}/<stamp>-old-launcher/"
+  when: session_old_found | length > 0
+
+- name: Back up the leftovers, then remove them
+  ansible.builtin.shell:
+    cmd: >-
+      set -e;
+      dest={{ (session_backup_root ~ '/' ~ lookup('ansible.builtin.pipe', 'date +%Y%m%d-%H%M%S') ~ '-old-launcher') | quote }};
+      mkdir -p "$dest";
+      cd {{ session_old_launcher_dir | quote }};
+      cp -a -- {% for i in session_old_found %}{{ i | quote }} {% endfor %}"$dest"/;
+      rm -rf -- {% for i in session_old_found %}{{ i | quote }} {% endfor %};
+      echo "backed up to $dest"
+  become: true
+  when: session_old_found | length > 0
+  changed_when: true
+
+# ---- 4. vm.swappiness, permanent -------------------------------------------------------------------------
+- name: Permanent vm.swappiness (sysctl.d drop-in)
+  ansible.builtin.copy:
+    dest: "{{ session_sysctl_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by coin-dojo ansible (role session, #209). hk_vm_swappiness: swap only under real memory pressure
+      # (the 144 ms swap-in hitch of #92). Remove this file and run `sudo sysctl --system` to go back to the default.
+      vm.swappiness = {{ session_vm_swappiness | int }}
+  become: true
+  notify: Apply sysctl
+
+- name: Remove the first draft's sysctl drop-in (it sorted before 98-rpi.conf)
+  ansible.builtin.file:
+    path: "{{ session_sysctl_old }}"
+    state: absent
+  become: true
+  notify: Apply sysctl
+
+- name: Apply sysctl now if the drop-in changed
+  ansible.builtin.meta: flush_handlers
+
+- name: Read vm.swappiness (the live kernel value)
+  ansible.builtin.slurp:
+    src: /proc/sys/vm/swappiness
+  register: session_swappiness_raw
+
+- name: Assert vm.swappiness is in effect (no later sysctl.d file overrides it)
+  ansible.builtin.assert:
+    that: (session_swappiness_raw.content | b64decode | trim | int) == (session_vm_swappiness | int)
+    fail_msg: "vm.swappiness is {{ session_swappiness_raw.content | b64decode | trim }}, not {{ session_vm_swappiness }}: a sysctl.d file sorting after {{ session_sysctl_file }} overrides it (sysctl --system lists the order)."
+    quiet: true
+  when: not ansible_check_mode and not coin_dojo_image | default(false) | bool   # #244: the image's kernel reads it at boot
+
+- name: When the change takes effect
+  ansible.builtin.debug:
+    msg: >-
+      session: installed; vm.swappiness is already in effect. The loop starts at the next tty1 login, which reads
+      the new profile line. A deploy that restarts ES-DE (any changed ES-DE file, `make esde-restart APPLY=1`) is
+      such a login: ES-DE dies, cage ends, autologin starts the session loop during that deploy. Else a reboot.
+      Log: {{ session_log }}.
+  when: not ansible_check_mode

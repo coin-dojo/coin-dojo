@@ -1,0 +1,25 @@
+# Area: attract. ES-DE attract mode (its "screensaver"): started by hand, and automatically after idle time.
+area: attract
+description: When and how ES-DE's attract mode starts.
+variables:
+  hk_attract_timer_ms:
+    type: int
+    default: 600000
+    min: 0
+    max: 86400000
+    description: >-
+      Idle time in milliseconds before attract mode starts by itself (ES-DE ScreensaverTimer). 600000 is 10 minutes
+      (the maintainer 2026-11-15; it was 1 hour). It must not take over during play or tests. 0 turns the automatic start off.
+    consumers: [ansible/roles/cabinet_tweaks]
+  hk_attract_controls:
+    type: bool
+    default: true
+    description: >-
+      Let the player start attract mode by hand (ES-DE ScreensaverControls; Short = "x" on the system carousel).
+    consumers: [ansible/roles/cabinet_tweaks]
+  hk_attract_type:
+    type: enum
+    allowed: [dim, black, slideshow, video]
+    default: video
+    description: What attract mode shows (ES-DE ScreensaverType).
+    consumers: [ansible/roles/cabinet_tweaks]

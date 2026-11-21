@@ -1,0 +1,9 @@
+# Managed by coin-dojo Ansible (role diskhygiene, #91). Local edits are overwritten.
+# dpkg leaves these paths out of every future install/upgrade (the root fs is a 6.9G SD partition).
+# The last matching rule wins: copyright files and English locales stay.
+{% for g in diskhygiene_path_excludes %}
+path-exclude={{ g }}
+{% endfor %}
+{% for g in diskhygiene_path_includes %}
+path-include={{ g }}
+{% endfor %}

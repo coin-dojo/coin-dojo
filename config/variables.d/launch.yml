@@ -1,0 +1,80 @@
+# Area: launch. How games start: which emulator ES-DE picks per system, RetroArch core options and retroarch.cfg keys.
+area: launch
+description: Per-system emulator choice, core options and retroarch.cfg keys.
+variables:
+  hk_alt_emulators:
+    type: map
+    default:
+      # aligned columns read better here:
+      # yamllint disable rule:colons rule:commas
+      nes:  { label: "Nestopia UE",   core: nestopia_libretro.so }
+      cps1: { label: "FinalBurn Neo", core: fbneo_libretro.so }
+      cps2: { label: "FinalBurn Neo", core: fbneo_libretro.so }
+      cps3: { label: "FinalBurn Neo", core: fbneo_libretro.so }
+      psx:  { label: "PCSX ReARMed",  core: pcsx_rearmed_libretro.so }
+      # yamllint enable rule:colons rule:commas
+    description: >-
+      ES-DE per-system default emulator (#47): system -> {label: the ES-DE label from es_systems.xml, core: the libretro
+      core file it needs}. ES-DE 3.5 defaults nes to "Mesen", which is not installed, so NES games would not launch.
+      The deploy asserts every core exists, then pins the label in the system's gamelist (only the
+      `<alternativeEmulator>` block, never `<gameList>`). Dreamcast is pinned by its own role. The test VM has
+      no fbneo core and pins nes only.
+    consumers: [ansible/roles/cabinet_tweaks]
+  hk_core_options:
+    type: list
+    items: map
+    default:
+      # PSX enhancement + N64 screen size come from hk_upscale (#170, cabinet_tweaks derives them; a line here
+      # with the same core + key wins).
+      - { core: Flycast, key: reicast_internal_resolution, value: 640x480 }   # libretro core unused now
+    description: >-
+      RetroArch core options, one line each: `{core: <folder under config/>, key: <option>, value: <value>}`, written
+      after the ones hk_upscale derives (PSX enhancement, N64 screen size), so a line here wins. Edited in
+      place (RetroArch rewrites these files with every default, so a whole-file template would fight it).
+    consumers: [ansible/roles/cabinet_tweaks]
+  hk_benchmark_mode:
+    type: bool
+    default: false
+    description: >-
+      Benchmark mode (#185): RetroArch shows its FPS counter top right inside the 4:3 bezel, cyan on a dark backing.
+      RetroArch can draw the counter there only as plain text, so while this is on its popups (achievements included)
+      are plain text in that corner too, without badges. Off = the normal popups. flycast (Dreamcast, Naomi) shows its
+      counter too, top right inside the bezel in the same colours (#187, needs the patched build/flycast, #188).
+    consumers: [ansible/roles/cabinet_tweaks, ansible/roles/dreamcast]
+  hk_retroarch_cfg:
+    type: list
+    items: map
+    default:
+      # Hotkey = START (btn 9, moved from Select, #57); Start+Select exits; Start+MP = RetroArch menu;
+      # Start+HP = controls card + pause. USB pad Select=8, Start=9; panel MP=0, HP=5.
+      - { key: input_enable_hotkey_btn, value: "9" }
+      - { key: input_exit_emulator_btn, value: "8" }
+      - { key: input_menu_toggle_btn, value: "0" }
+      # controls helper (#57): Start+HP (btn 5) shows/hides the per-game overlay and pauses/resumes
+      - { key: input_overlay_next_btn, value: "5" }
+      - { key: input_pause_toggle_btn, value: "5" }
+      - { key: fps_show, value: "false" }
+      # #56: Ansible owns the remap files; with this on, RetroArch rewrites them on every exit (it reformatted
+      # Genesis Plus GX.rmp and dropped lines). Save a remap from the menu explicitly.
+      - { key: remap_save_on_exit, value: "false" }
+      # #42 (Security): never announce netplay sessions to the public lobby (the live cabinet had "true").
+      - { key: netplay_public_announce, value: "false" }
+      # #174 bezel (only x=240..1680 of the 1920 panel shows, 4:3): proven by cabinet screenshots 2026-11-17.
+      # RGUI follows the game's custom 4:3 viewport with lock 0 ("1" = Fit shifted it right, cut by the bezel).
+      - { key: rgui_aspect_ratio_lock, value: "0" }
+      # achievement popups: top-center (the default top-left lands under the left bezel)
+      - { key: cheevos_appearance_anchor, value: "1" }
+      - { key: cheevos_appearance_padding_auto, value: "true" }
+      # the full-width "loading" band and the launch toasts (fixed bottom-left, under the bezel): off
+      - { key: menu_show_load_content_animation, value: "false" }
+      - { key: notification_show_config_override_load, value: "false" }
+      - { key: notification_show_autoconfig, value: "false" }
+      # #186 (the maintainer 2026-11-17: "controller things stretch left"): the other controller toasts, same bottom-left spot
+      - { key: notification_show_autoconfig_fails, value: "false" }
+      - { key: notification_show_remap_load, value: "false" }
+      # plain OSD text (used when menu_enable_widgets is false): inside the bezel (0.16 = 307 px)
+      - { key: video_message_pos_x, value: "0.160000" }
+    description: >-
+      retroarch.cfg keys, one line each: `{key: <name>, value: "<value>"}` (values are quoted strings, as RetroArch
+      writes them). Includes the hotkey and exit buttons; the controls area takes those over later.
+    consumers: [ansible/roles/cabinet_tweaks]
